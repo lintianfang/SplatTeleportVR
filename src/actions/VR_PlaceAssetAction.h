@@ -22,7 +22,8 @@ struct VRPlaceAssetUndoAction : public Action{
 	void redo(){
 		auto editor = SplatEditor::instance;
 
-		editor->scene.world->children.push_back(placedItem);
+		//editor->scene.world->children.push_back(placedItem);
+		editor->insertLayerAboveEnvironment(placedItem);
 		editor->setSelectedNode(placedItem.get());
 	}
 
@@ -87,8 +88,8 @@ struct VR_PlaceAssetAction : public InputAction{
 				// Place a clone into the scene
 				shared_ptr<SNSplats> newNode = editor->clone(node.get());
 				newNode->hidden = false;
-				editor->scene.world->children.push_back(newNode);
-
+				//editor->scene.world->children.push_back(newNode);
+				editor->insertLayerAboveEnvironment(newNode);
 				// newNode->transform = translate(pos);
 				newNode->transform = inverse(editor->scene.world->transform) * placingItem->transform;
 				

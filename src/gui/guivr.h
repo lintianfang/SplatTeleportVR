@@ -351,7 +351,8 @@ void makeLayersVR(ImguiPage* page){
 
 	const float actionSpacing = ImGui::GetStyle().ItemSpacing.y;
 	const float actionButtonHeight = 60.0f;
-	const float actionAreaHeight = 2.0f * actionButtonHeight + actionSpacing + 20.0f;
+	//const float actionAreaHeight = 2.0f * actionButtonHeight + actionSpacing + 20.0f;
+	const float actionAreaHeight = 3.0f * actionButtonHeight + 2.0f * actionSpacing + 20.0f;
 
 	float tableHeight = ImGui::GetContentRegionAvail().y - actionAreaHeight;
 
@@ -366,28 +367,25 @@ void makeLayersVR(ImguiPage* page){
 
 	if (ImGui::BeginTable("Models##listOfModels", 2, flags, ImVec2(0.0f, tableHeight))) {
 
-		ImGui::TableSetupColumn("Model",   ImGuiTableColumnFlags_WidthStretch, 0.0f);
+		ImGui::TableSetupColumn("Model", ImGuiTableColumnFlags_WidthStretch, 0.0f);
 		// ImGui::TableSetupColumn("Mem",     ImGuiTableColumnFlags_WidthFixed, 50.0f);
 		ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 80.0f);
 
 		int i = 0;
-		editor->scene.root->traverse([&](SceneNode* node){
 
-			if(node->hidden) return;
+		for (auto& node : editor->scene.world->children) {
+			if (!node || node->hidden) continue;
 
-			
-			if(dynamic_cast<SNSplats*>(node) != nullptr){
-				make_layeritem_vr((SNSplats*)node, i);
-				i++;
-			}else if(dynamic_cast<SNPoints*>(node) != nullptr){
-				make_layeritem_vr((SNPoints*)node, i);
-				i++;
-			}else if(dynamic_cast<SNTriangles*>(node) != nullptr){
-				make_layeritem_vr((SNTriangles*)node, i);
-				i++;
+			if (auto splatNode = dynamic_pointer_cast<SNSplats>(node)) {
+				make_layeritem_vr(splatNode.get(), i++);
 			}
-			
-		});
+			else if (auto pointNode = dynamic_pointer_cast<SNPoints>(node)) {
+				make_layeritem_vr(pointNode.get(), i++);
+			}
+			else if (auto triangleNode = dynamic_pointer_cast<SNTriangles>(node)) {
+				make_layeritem_vr(triangleNode.get(), i++);
+			}
+		}
 
 		ImGui::EndTable();
 	}
@@ -479,7 +477,7 @@ void makeLayersVR(ImguiPage* page){
 	}
 
 	ImGui::SameLine();
-
+	
 	/*
 	 * Create Asset 暂时只作为禁用占位。
 	 * 下一步再接入 AssetLibrary。
@@ -540,7 +538,16 @@ void makeLayersVR(ImguiPage* page){
 			editor->setSelectedNode(selectionAfterDelete.get());
 		}
 	}
+	/*
+	* Row 3:
+	* Import Asset
+	*/
+	const bool importAssetClicked =
+		ImGui::Button("Import Asset##VR", ImVec2(availableWidth, actionButtonHeight));
 
+	if (importAssetClicked) {
+		editor->importAssetFromFile("E:/models/plant.ply");
+	}
 	const ImVec2 actionAreaEnd = ImGui::GetCursorPos();
 
 	ImVec2 actionRectMin = {
@@ -968,7 +975,7 @@ void makeTeleportVR(ImguiPage* page)
 	using TeleportMode = SplatEditor::TeleportMode;
 
 	page->width = 440;
-	page->height = 780;
+	page->height = 880;
 
 	ImGui::SetCurrentContext(page->context);
 	ImGuiIO& io = page->context->IO;
@@ -1128,6 +1135,17 @@ void makeTeleportVR(ImguiPage* page)
 			editor->teleport_indicators.clear();
 			editor->hovered_teleport_indicator = -1;
 			editor->teleport_target_valid = false;
+		}
+		ImGui::Spacing();
+
+		if (GUIVR::Button("Save Indicators", actionButtonSize)) {
+			editor->saveTeleportIndicators("teleport_indicators.csv");
+		}
+
+		ImGui::SameLine();
+
+		if (GUIVR::Button("Load Indicators", actionButtonSize)) {
+			editor->loadTeleportIndicators("teleport_indicators.csv");
 		}
 	}
 	else {

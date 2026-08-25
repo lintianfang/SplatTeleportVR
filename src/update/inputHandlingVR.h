@@ -205,6 +205,9 @@ void SplatEditor::inputHandlingVR(){
 			const float beamRadius = 0.01f;
 			const vec4 beamColor = teleport_target_valid ? vec4(0.05f, 0.65f, 1.0f, 1.0f) : vec4(0.10f, 0.40f, 1.0f, 1.0f);
 			drawTeleportBeam(teleportBeamStart, teleportRayEnd, beamRadius, beamRadius, beamColor);
+			if (teleport_converging_guides_enabled && teleport_target_valid && !teleport_refinement_active) {
+				drawTeleportConvergingGuides(teleportRayOrigin, teleportRayDirection, teleportRayEnd);
+			}
 		}
 	}
 	if (teleport_mode == TeleportMode::INDICATOR_TELEPORT && teleportRayValid && right.isTriggerPressed()) 
@@ -596,14 +599,18 @@ void SplatEditor::inputHandlingVR(){
 	}
 
 	// ============================================================
-	// TELEPORT: OPTIONAL 2D DESTINATION REFINEMENT
-	// ============================================================
-	if (teleport_mode == TeleportMode::REFINED_SPLAT && right.valid && right.isTriggerPressed() && teleport_target_valid) {
-		vec2 touch(right.state.rAxis[0].x, right.state.rAxis[0].y);
+// TELEPORT: OPTIONAL 2D DESTINATION REFINEMENT
+// Left touchpad is temporarily owned by teleport while
+// the right trigger is held.
+// ============================================================
+	if (teleport_mode == TeleportMode::REFINED_SPLAT && right.valid && left.valid && right.isTriggerPressed() && teleport_target_valid) {
+		vec2 touch(left.state.rAxis[0].x, left.state.rAxis[0].y);
 		float touchLength = glm::length(touch);
 
 		if (!teleport_refinement_active && touchLength > teleport_refinement_activation_threshold) {
 			teleport_refinement_active = true;
+			teleport_refinement_activation_count++;
+
 			teleport_content_anchor_position = teleport_target_position;
 
 			vec3 horizontalDirection(
@@ -613,6 +620,11 @@ void SplatEditor::inputHandlingVR(){
 			);
 
 			if (glm::length(horizontalDirection) > 0.0001f) teleport_refinement_forward = glm::normalize(horizontalDirection);
+
+			println(
+				"[Teleport Refinement] activated count={}",
+				teleport_refinement_activation_count
+			);
 		}
 
 		if (teleport_refinement_active && touchLength > teleport_refinement_activation_threshold) {
@@ -636,7 +648,7 @@ void SplatEditor::inputHandlingVR(){
 	}
 	if (teleport_mode == TeleportMode::REFINED_SPLAT && teleport_refinement_active && teleport_target_valid && right.isTriggerPressed()) {
 		const vec3 up(0.0f, 0.0f, 1.0f);
-		const vec4 diskColor(0.05f, 0.65f, 1.0f, 0.68f);
+		const vec4 diskColor(0.05f, 0.65f, 1.0f, 0.80f);
 
 		drawTeleportRefinementDisk(
 			teleport_content_anchor_position,
@@ -645,6 +657,36 @@ void SplatEditor::inputHandlingVR(){
 			teleport_refinement_radius,
 			diskColor
 		);
+	}
+	if (teleport_perf.enabled) {
+		TeleportPerfCondition condition = TeleportPerfCondition::NONE;
+
+		if (teleport_perf.renderingBaseline) {
+			condition = TeleportPerfCondition::RENDERING;
+		}
+		else if (right.valid && right.isTriggerPressed() && !editor->state_vr.menu_intersects && state.currentAction == nullptr) {
+			const bool contentTeleport =
+				teleport_mode == TeleportMode::DIRECT_SPLAT ||
+				teleport_mode == TeleportMode::REFINED_SPLAT ||
+				teleport_mode == TeleportMode::ADAPTIVE_SPLAT;
+
+			const bool carrying =
+				right.isMenuPressed() &&
+				grabbedGuiNode == nullptr &&
+				hasTeleportCarryLayer();
+
+			if (carrying) {
+				condition = TeleportPerfCondition::CARRYING;
+			}
+			else if (teleport_mode == TeleportMode::REFINED_SPLAT && teleport_refinement_active) {
+				condition = TeleportPerfCondition::REFINEMENT;
+			}
+			else if (contentTeleport) {
+				condition = TeleportPerfCondition::TARGET_SEARCH;
+			}
+		}
+
+		teleport_perf.frameCondition = condition;
 	}
 	// ============================================================
 // TELEPORT: EXECUTE ON TRIGGER RELEASE
@@ -689,13 +731,36 @@ void SplatEditor::inputHandlingVR(){
 				teleport_refinement_active;
 
 			if (!use3DRefinedDestination) delta.z = 0.0f;
-			if (teleport_logging_enabled) {
+			if (teleport_recording_enabled) {
 				TeleportRecord record;
 
+				const auto now = std::chrono::steady_clock::now();
+
 				record.sequence = teleport_count + 1;
+				record.elapsedTime = std::chrono::duration<double>(
+					now - teleport_recording_start_time
+				).count();
+
+				if (teleport_has_last_record_time) {
+					record.intervalTime = std::chrono::duration<double>(
+						now - teleport_last_record_time
+					).count();
+				}
+				else {
+					record.intervalTime = 0.0;
+				}
+
+				teleport_last_record_time = now;
+				teleport_has_last_record_time = true;
+
 				record.mode = teleport_mode;
 				record.targetPosition = teleport_target_position;
 				record.distance = glm::length(delta);
+
+				record.refinementUsed = teleport_mode == TeleportMode::REFINED_SPLAT && teleport_refinement_active;
+				record.refinementDepth = record.refinementUsed ? teleport_refinement_depth : 0.0f;
+				record.refinementHeight = record.refinementUsed ? teleport_refinement_height : 0.0f;
+				record.contentAnchorPosition = record.refinementUsed ? teleport_content_anchor_position : teleport_target_position;
 
 				if (teleport_mode == TeleportMode::DIRECT_SPLAT || teleport_mode == TeleportMode::REFINED_SPLAT || teleport_mode == TeleportMode::ADAPTIVE_SPLAT) {
 					SNSplats* environment = editor->getTeleportEnvironmentLayer();
@@ -743,6 +808,7 @@ void SplatEditor::inputHandlingVR(){
 				}
 
 				teleport_records.push_back(record);
+				appendTeleportRecordToCSV(record);
 				teleport_count++;
 				teleport_total_distance += record.distance;
 
@@ -814,6 +880,15 @@ void SplatEditor::inputHandlingVR(){
 				carriedLayer->transform = glm::inverse(scene.world->transform) * carriedGlobalBefore;
 				teleportExecutedThisFrame = true;
 			}
+			if (teleport_mode == TeleportMode::REFINED_SPLAT && teleport_refinement_active) {
+				teleport_refined_teleport_count++;
+
+				println(
+					"[Teleport Refinement] executed, refinedTeleports={}",
+					teleport_refined_teleport_count
+				);
+			}
+
 
 			teleport_target_valid = false;
 			// for refine
@@ -933,27 +1008,43 @@ void SplatEditor::inputHandlingVR(){
 		}
 	}
 
-	{ // UNDO HANDLING with left joystick
+	{ // UNDO / REDO HANDLING with left touchpad
 		float value = left.state.rAxis[0].x;
 
 		constexpr int STATE_NEUTRAL = 0;
 		constexpr int STATE_LEFT = 1;
 		constexpr int STATE_RIGHT = 2;
-		constexpr float THRESHOLD_LEFT_RIGHT = 0.7f; // EXCEEDING +- THRESHOLD will set state to left or right
-		constexpr float THRESHOLD_NEUTRAL = 0.1f; // if value is under this threshold, state will be set to neutral
-		static int state = STATE_NEUTRAL;
+		constexpr float THRESHOLD_LEFT_RIGHT = 0.7f;
+		constexpr float THRESHOLD_NEUTRAL = 0.1f;
 
-		int newState = STATE_NEUTRAL;
-		if(value < -THRESHOLD_LEFT_RIGHT) newState = STATE_LEFT;
-		if(value > +THRESHOLD_LEFT_RIGHT) newState = STATE_RIGHT;
+		static int undoRedoState = STATE_NEUTRAL;
+		static bool suppressUndoRedoUntilNeutral = false;
 
-		if(state == STATE_NEUTRAL && newState == STATE_LEFT){
-			editor->undo();
-		}else if(state == STATE_NEUTRAL && newState == STATE_RIGHT){
-			editor->redo();
+		const bool teleportOwnsLeftTouchpad =
+			teleport_mode == TeleportMode::REFINED_SPLAT &&
+			right.valid &&
+			right.isTriggerPressed();
+
+		if (teleportOwnsLeftTouchpad) {
+			suppressUndoRedoUntilNeutral = true;
+			undoRedoState = STATE_NEUTRAL;
 		}
-		
-		state = newState;
+		else if (suppressUndoRedoUntilNeutral) {
+			if (std::abs(value) < THRESHOLD_NEUTRAL) {
+				suppressUndoRedoUntilNeutral = false;
+				undoRedoState = STATE_NEUTRAL;
+			}
+		}
+		else {
+			int newState = STATE_NEUTRAL;
+			if (value < -THRESHOLD_LEFT_RIGHT) newState = STATE_LEFT;
+			else if (value > THRESHOLD_LEFT_RIGHT) newState = STATE_RIGHT;
+
+			if (undoRedoState == STATE_NEUTRAL && newState == STATE_LEFT) editor->undo();
+			else if (undoRedoState == STATE_NEUTRAL && newState == STATE_RIGHT) editor->redo();
+
+			undoRedoState = newState;
+		}
 	}
 
 	// Transform "world" with A button, which unfortunately is equal to grip button in OpenVR's legacy input handling.
@@ -988,7 +1079,15 @@ void SplatEditor::inputHandlingVR(){
 		
 		mat4 transform = trans * translate(center) * rot * glm::scale(vec3{ scale, scale, scale }) * translate(-center);
 
-		scene.world->transform = transform * scene.world->transform;
+		//scene.world->transform = transform * scene.world->transform;
+		SceneNode* selectedLayer = getSelectedTransformLayer();
+
+		if (selectedLayer) {
+			applyWorldTransformToSelectedLayer(transform);
+		}
+		else {
+			scene.world->transform = transform * scene.world->transform;
+		}
 
 	}else if(right.isGripPressed()){
 		// GRIP TRANSLATE
@@ -1002,9 +1101,12 @@ void SplatEditor::inputHandlingVR(){
 
 	// FLY-THROUGH USING RIGHT JOYSTICK
 	//if(!editor->state_vr.menu_intersects){ 
-	const bool teleportUsesRightTouchpad = teleport_mode == TeleportMode::REFINED_SPLAT && right.isTriggerPressed();
+	const bool teleportTargetingActive =
+		teleport_mode == TeleportMode::REFINED_SPLAT &&
+		right.valid &&
+		right.isTriggerPressed();
 
-	if (!editor->state_vr.menu_intersects && !teleportUsesRightTouchpad) {
+	if (!editor->state_vr.menu_intersects && !teleportTargetingActive) {
 
 		mat4 mRot = glm::rotate(-140.0f * 3.1415f / 180.0f, vec3{ 1.0f, 0.0f, 0.0f });
 		mat4 transform_controller = mat4(ovr->flip * right.transform) * mRot;

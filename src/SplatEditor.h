@@ -235,6 +235,12 @@ struct SplatEditor{
 	bool suppress_vr_gui_rendering = false;
 	TeleportBeam teleport_beam;
 	TeleportRefinementDisk teleport_refinement_disk;
+	bool teleport_converging_guides_enabled = true;
+
+	char teleport_participant_id[64] = "";
+	char teleport_task_name[64] = "";
+	char teleport_condition_name[64] = "";
+	string teleport_log_filename = "";
 
 	enum class TeleportMode : uint32_t {
 		DIRECT_SPLAT = 0,
@@ -251,8 +257,38 @@ struct SplatEditor{
 		ADAPTIVE_FALLBACK = 3
 	};
 
+	enum class TeleportPerfCondition : uint32_t {
+		NONE = 0,
+		RENDERING = 1,
+		TARGET_SEARCH = 2,
+		REFINEMENT = 3,
+		CARRYING = 4
+	};
+
+	struct TeleportPerfMeasurement {
+		bool enabled = false;
+		bool renderingBaseline = false;
+
+		string sceneName = "scene";
+		uint32_t run = 1;
+
+		TeleportPerfCondition frameCondition = TeleportPerfCondition::NONE;
+
+		std::chrono::steady_clock::time_point previousFrameTime;
+		bool hasPreviousFrameTime = false;
+
+		vector<double> renderingFrameTimes;
+		vector<double> targetSearchFrameTimes;
+		vector<double> refinementFrameTimes;
+		vector<double> carryingFrameTimes;
+	};
+
+	TeleportPerfMeasurement teleport_perf;
+
 	struct TeleportRecord {
 		uint32_t sequence = 0;
+		double elapsedTime = 0.0;
+		double intervalTime = 0.0;
 		TeleportMode mode = TeleportMode::DIRECT_SPLAT;
 		uint32_t gaussianIndex = std::numeric_limits<uint32_t>::max();
 
@@ -265,6 +301,11 @@ struct SplatEditor{
 
 		float opacity = -1.0f;
 		float distance = 0.0f;
+
+		bool refinementUsed = false;
+		float refinementDepth = 0.0f;
+		float refinementHeight = 0.0f;
+		vec3 contentAnchorPosition = vec3(0.0f);
 	};
 
 	struct TeleportEvalTarget {
@@ -307,10 +348,14 @@ struct SplatEditor{
 		vec3 projectedTarget = vec3(0.0f);
 	};
 
-	bool teleport_logging_enabled = true;
+	bool teleport_logging_enabled = true;       // 
+	bool teleport_recording_enabled = false;    // 
 	uint32_t teleport_count = 0;
 	vector<TeleportRecord> teleport_records;
 	float teleport_total_distance = 0.0f;
+	std::chrono::steady_clock::time_point teleport_recording_start_time;
+	std::chrono::steady_clock::time_point teleport_last_record_time;
+	bool teleport_has_last_record_time = false;
 
 	struct TeleportIndicator {
 		uint32_t id = 0;
@@ -337,6 +382,8 @@ struct SplatEditor{
 	float teleport_adaptive_selected_radius = 0.01f;
 	//2 step refine
 	bool teleport_refinement_active = false;
+	uint32_t teleport_refinement_activation_count = 0;
+	uint32_t teleport_refined_teleport_count = 0;
 
 	vec3 teleport_content_anchor_position = vec3(0.0f);
 	vec3 teleport_refinement_forward = vec3(0.0f, 1.0f, 0.0f);
@@ -346,6 +393,9 @@ struct SplatEditor{
 
 	float teleport_refinement_depth = 0.0f;
 	float teleport_refinement_height = 0.0f;
+
+	shared_ptr<SNSplats> pendingImportedAsset = nullptr;
+	bool pendingImportedAssetReady = false;
 
 	struct{
 		float splatSize                  = 1.0f;
@@ -575,11 +625,16 @@ struct SplatEditor{
 	void requestVRPanelMode(VRPanelMode mode);
 	void applyPendingVRPanelMode();
 	void addTeleportIndicator(const vec3& worldPosition);
+	bool saveTeleportIndicators(const string& path);
+	bool loadTeleportIndicators(const string& path);
 	void initializeTeleportEnvironmentLayer();
 	SNSplats* getTeleportEnvironmentLayer();
 	void resetTeleportEnvironmentLayer();
 
 	void createAssetFromLayer(shared_ptr<SNSplats> node);
+	void importAssetFromFile(const string& path);
+	void finalizeImportedAsset();
+	void insertLayerAboveEnvironment(shared_ptr<SceneNode> node);
 
 	void setTeleportEvalTargetFromSelection(string name);
 	void setTeleportEvalViewFromHMD();
@@ -613,4 +668,22 @@ struct SplatEditor{
 	void setTeleportEvalPlaneViewCFromRightController();
 
 	//void drawTeleportDisk(vec3 center, vec3 normal, float radius, vec4 fillColor, vec4 ringColor);
+	void appendTeleportRecordToCSV(const TeleportRecord& record);
+
+	void drawTeleportConvergingGuides(vec3 origin, vec3 rayDirection, vec3 target);
+
+	//shared_ptr<SNSplats> importGaussianLayer(const string& path);
+	//void importAssetFromFile(const string& path);
+
+	SceneNode* getSelectedTransformLayer();
+	void applyWorldTransformToSelectedLayer(const mat4& worldDelta);
+	//for FPS
+	void updateTeleportPerfFrame();
+	void startTeleportPerfCapture(const string& sceneName);
+	void stopTeleportPerfCapture();
+	void exportTeleportPerfCSV();
+	void clearTeleportPerf();
+	bool hasTeleportCarryLayer();
+
+	string sanitizeFilename(const string& input);
 };

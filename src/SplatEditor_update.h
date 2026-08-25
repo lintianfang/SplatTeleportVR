@@ -3,6 +3,9 @@
 void SplatEditor::update(){
 
 	cuCtxSynchronize();
+	updateTeleportPerfFrame();
+	// Finalize an asynchronously imported 3DGS asset once GPU upload is complete.
+	finalizeImportedAsset();
 
 	{
 		string strfps = format("Splat Editor | FPS: {}", int(GLRenderer::fps));

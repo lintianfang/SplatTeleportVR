@@ -260,6 +260,8 @@ void SplatEditor::setup(){
 	auto sphere = Mesh::createSphere();
 	editor->sn_dbgsphere = make_shared<SNTriangles>("debugSphere");
 	editor->sn_dbgsphere->set(sphere->position, sphere->uv);
+	editor->sn_dbgsphere->material.color = vec4(0.78f, 0.35f, 1.00f, 1.0f);
+	editor->sn_dbgsphere->material.mode = MATERIAL_MODE_COLOR;
 	editor->sn_dbgsphere->transform = glm::scale(vec3{0.1f, 0.1f, 0.1f});
 	editor->sn_dbgsphere->hidden = true;
 	editor->sn_dbgsphere->visible = false;
@@ -1113,7 +1115,7 @@ void SplatEditor::uploadSplats(SNSplats* node){
 	shared_ptr<Splats> splats = node->splats;
 
 	if(!splats) return;
-
+	const bool isImportedAsset = pendingImportedAsset && pendingImportedAsset.get() == node;
 	// very important: numLoaded changes concurrently by a loader thread, so splats->numSplatsLoaded could be different
 	// at different points in this function. Store it in a variable so it stays the same for commit and upload.
 	uint64_t numLoaded = splats->numSplatsLoaded;
@@ -1153,6 +1155,14 @@ void SplatEditor::uploadSplats(SNSplats* node){
 
 		// remove splats from node once loading is finished
 		node->splats = nullptr;
+		if (isImportedAsset) {
+			pendingImportedAssetReady = true;
+
+			println(
+				"[Import Asset] GPU upload completed: {} splats",
+				node->dmng.data.count
+			);
+		}
 	}
 }
 
@@ -2816,6 +2826,113 @@ void SplatEditor::addTeleportIndicator(const vec3& worldPosition)
 	teleport_indicators.push_back(indicator);
 }
 
+bool SplatEditor::saveTeleportIndicators(const string& path) {
+	SNSplats* environment = getTeleportEnvironmentLayer();
+
+	if (!environment) {
+		println("[Teleport Indicators] No environment layer.");
+		return false;
+	}
+
+	std::ofstream file(path);
+
+	if (!file.is_open()) {
+		println("[Teleport Indicators] Failed to open file: {}", path);
+		return false;
+	}
+
+	file << "version,1\n";
+	file << "id,x,y,z\n";
+
+	for (const auto& indicator : teleport_indicators) {
+		file
+			<< indicator.id << ","
+			<< std::fixed << std::setprecision(6)
+			<< indicator.localPosition.x << ","
+			<< indicator.localPosition.y << ","
+			<< indicator.localPosition.z << "\n";
+	}
+
+	file.close();
+
+	println(
+		"[Teleport Indicators] Saved {} indicators to {}",
+		teleport_indicators.size(),
+		path
+	);
+
+	return true;
+}
+
+bool SplatEditor::loadTeleportIndicators(const string& path) {
+	initializeTeleportEnvironmentLayer();
+
+	SNSplats* environment = getTeleportEnvironmentLayer();
+
+	if (!environment) {
+		println("[Teleport Indicators] No environment layer.");
+		return false;
+	}
+
+	std::ifstream file(path);
+
+	if (!file.is_open()) {
+		println("[Teleport Indicators] Failed to open file: {}", path);
+		return false;
+	}
+
+	std::vector<TeleportIndicator> loadedIndicators;
+
+	const mat4 environmentToWorld = scene.world->transform * environment->transform;
+
+	std::string line;
+	uint32_t maxID = 0;
+	bool hasIndicator = false;
+
+	while (std::getline(file, line)) {
+		if (line.empty()) continue;
+		if (line.rfind("version,", 0) == 0) continue;
+		if (line.rfind("id,", 0) == 0) continue;
+
+		std::replace(line.begin(), line.end(), ',', ' ');
+
+		std::stringstream ss(line);
+
+		TeleportIndicator indicator;
+
+		if (!(ss
+			>> indicator.id
+			>> indicator.localPosition.x
+			>> indicator.localPosition.y
+			>> indicator.localPosition.z)) {
+			continue;
+		}
+
+		indicator.basisAtCreation = mat3(environmentToWorld);
+
+		loadedIndicators.push_back(indicator);
+
+		maxID = std::max(maxID, indicator.id);
+		hasIndicator = true;
+	}
+
+	file.close();
+
+	teleport_indicators = std::move(loadedIndicators);
+	next_teleport_indicator_id = hasIndicator ? maxID + 1 : 0;
+
+	hovered_teleport_indicator = -1;
+	teleport_target_valid = false;
+
+	println(
+		"[Teleport Indicators] Loaded {} indicators from {}",
+		teleport_indicators.size(),
+		path
+	);
+
+	return true;
+}
+
 void SplatEditor::initializeTeleportEnvironmentLayer()
 {
 	if (teleport_environment_layer_id >= 0) {
@@ -2915,6 +3032,105 @@ void SplatEditor::createAssetFromLayer(shared_ptr<SNSplats> node)
 	AssetLibrary::assets.push_back(newNode);
 
 	println("[Asset] 8 asset added");
+}
+
+void SplatEditor::importAssetFromFile(const string& path)
+{
+	if (pendingImportedAsset) {
+		println("[Import Asset] Another asset is still loading.");
+		return;
+	}
+
+	if (!fs::exists(path)) {
+		println("[Import Asset] File does not exist: {}", path);
+		return;
+	}
+
+	println("[Import Asset] Loading {}", path);
+
+	auto splats = GSPlyLoader::load(path);
+
+	if (!splats) {
+		println("[Import Asset] Failed to load {}", path);
+		return;
+	}
+
+	auto node = make_shared<SNSplats>(splats->name, splats);
+
+	node->dmng.data.writeDepth = false;
+
+	// Internal loading node: do not show it as a scene layer.
+	node->hidden = true;
+	node->visible = false;
+
+	pendingImportedAsset = node;
+	pendingImportedAssetReady = false;
+
+	// Important: temporarily add it to the scene so that the existing
+	// uploadSplats() pipeline processes it.
+	scene.world->children.push_back(node);
+
+	println("[Import Asset] Started loading {}", splats->name);
+}
+
+void SplatEditor::finalizeImportedAsset()
+{
+	if (!pendingImportedAsset || !pendingImportedAssetReady) return;
+
+	auto asset = pendingImportedAsset;
+
+	// Explicitly remove the temporary staging node from scene.world.
+	auto& children = scene.world->children;
+	children.erase(
+		std::remove(children.begin(), children.end(), asset),
+		children.end()
+	);
+
+	println(
+		"[Import Asset] Removed staging node '{}', world children={}",
+		asset->name,
+		children.size()
+	);
+
+	// The asset now belongs only to the AssetLibrary.
+	asset->hidden = false;
+	asset->visible = true;
+
+	asset->transform = mat4(1.0f);
+	asset->dmng.data.transform = mat4(1.0f);
+	asset->dmng.data.writeDepth = false;
+
+	updateBoundingBox(asset.get());
+
+	asset->aabb.min = asset->dmng.data.min;
+	asset->aabb.max = asset->dmng.data.max;
+
+	createOrUpdateThumbnail(asset.get());
+
+	AssetLibrary::assets.push_back(asset);
+
+	println(
+		"[Import Asset] Added '{}' to AssetLibrary, splats={}",
+		asset->name,
+		asset->dmng.data.count
+	);
+
+	pendingImportedAsset = nullptr;
+	pendingImportedAssetReady = false;
+}
+
+void SplatEditor::insertLayerAboveEnvironment(shared_ptr<SceneNode> node)
+{
+	if (!node) return;
+
+	auto& children = scene.world->children;
+	children.insert(children.begin(), node);
+
+	println(
+		"[Layer] Insert '{}' at top, world children={}",
+		node->name,
+		children.size()
+	);
 }
 
 //void SplatEditor::setTeleportEvalTargetFromSelection(string name) {
@@ -4067,7 +4283,347 @@ void SplatEditor::setTeleportEvalPlaneViewCFromRightController() {
 	println("[Teleport Eval] VR Plane C = ({}, {}, {})", position.x, position.y, position.z);
 }
 
+void SplatEditor::appendTeleportRecordToCSV(const TeleportRecord& record) {
+	const std::string filename =
+		teleport_log_filename.empty()
+		? "teleport_log.csv"
+		: teleport_log_filename;
 
+	bool writeHeader = false;
+
+	{
+		std::ifstream checkFile(filename);
+		writeHeader = !checkFile.good() || checkFile.peek() == std::ifstream::traits_type::eof();
+	}
+
+	std::ofstream file(filename, std::ios::app);
+
+	if (!file.is_open()) {
+		println("[Teleport Log] Failed to open {}", filename);
+		return;
+	}
+	println(
+		"[Teleport Log] Writing to {}",
+		std::filesystem::absolute(filename).string()
+	);
+
+	if (writeHeader) {
+		file
+			<< "sequence,"
+			<< "elapsed_time_s,"
+			<< "interval_s,"
+			<< "mode,"
+			<< "distance,"
+			<< "target_x,target_y,target_z,"
+			<< "content_anchor_x,content_anchor_y,content_anchor_z,"
+			<< "refinement_used,"
+			<< "refinement_depth,"
+			<< "refinement_height\n";
+	}
+
+	const vec3 contentAnchor =
+		record.refinementUsed
+		? record.contentAnchorPosition
+		: record.targetPosition;
+
+	file
+		<< record.sequence << ","
+		<< std::fixed << std::setprecision(3) << record.elapsedTime << ","
+		<< std::fixed << std::setprecision(3) << record.intervalTime << ","
+		<< static_cast<uint32_t>(record.mode) << ","
+		<< std::fixed << std::setprecision(4)
+		<< record.distance << ","
+		<< record.targetPosition.x << ","
+		<< record.targetPosition.y << ","
+		<< record.targetPosition.z << ","
+		<< contentAnchor.x << ","
+		<< contentAnchor.y << ","
+		<< contentAnchor.z << ","
+		<< (record.refinementUsed ? 1 : 0) << ","
+		<< record.refinementDepth << ","
+		<< record.refinementHeight
+		<< "\n";
+
+	file.flush();
+}
+
+void SplatEditor::drawTeleportConvergingGuides(vec3 origin, vec3 rayDirection, vec3 target) {
+	if (!teleport_converging_guides_enabled) return;
+
+	const vec3 toTarget = target - origin;
+	const float targetDistance = glm::length(toTarget);
+	if (targetDistance < 0.05f) return;
+
+	vec3 forward = glm::normalize(rayDirection);
+	const vec3 worldUp(0.0f, 0.0f, 1.0f);
+
+	vec3 side = glm::cross(forward, worldUp);
+	if (glm::length(side) < 0.001f) side = vec3(1.0f, 0.0f, 0.0f);
+	else side = glm::normalize(side);
+
+	vec3 upLocal = glm::normalize(glm::cross(side, forward));
+
+	const float yawDeg = 45.0f;
+	const float pitchDeg = 45.0f;
+
+	const float yaw = glm::radians(yawDeg);
+	const float pitch = glm::radians(pitchDeg);
+
+	const float cf = cos(yaw) * cos(pitch);
+	const float cs = sin(yaw) * cos(pitch);
+	const float cu = sin(pitch);
+
+	const vec3 leftDirection = glm::normalize(cf * forward - cs * side + cu * upLocal);
+	const vec3 rightDirection = glm::normalize(cf * forward + cs * side + cu * upLocal);
+
+	const float controlDistance = glm::clamp(targetDistance * 0.22f, 0.25f, 0.90f);
+
+	const vec3 leftControl = origin + leftDirection * controlDistance;
+	const vec3 rightControl = origin + rightDirection * controlDistance;
+
+	auto bezier = [](const vec3& p0, const vec3& p1, const vec3& p2, float t) {
+		const float u = 1.0f - t;
+		return u * u * p0 + 2.0f * u * t * p1 + t * t * p2;
+		};
+
+	auto packColor = [](vec4 color) -> uint32_t {
+		auto toByte = [](float v) -> uint32_t { return static_cast<uint32_t>(glm::clamp(v, 0.0f, 1.0f) * 255.0f + 0.5f); };
+		return toByte(color.r) | (toByte(color.g) << 8) | (toByte(color.b) << 16) | (toByte(color.a) << 24);
+		};
+
+	const uint32_t guideColor = packColor(vec4(0.05f, 0.65f, 1.0f, 1.0f));
+	constexpr int segments = 24;
+
+	vec3 previousLeft = origin;
+	vec3 previousRight = origin;
+
+	for (int i = 1; i <= segments; i++) {
+		const float t = float(i) / float(segments);
+
+		const vec3 currentLeft = bezier(origin, leftControl, target, t);
+		const vec3 currentRight = bezier(origin, rightControl, target, t);
+
+		drawLine(previousLeft, currentLeft, guideColor);
+		drawLine(previousRight, currentRight, guideColor);
+
+		previousLeft = currentLeft;
+		previousRight = currentRight;
+	}
+}
+
+//shared_ptr<SNSplats> SplatEditor::importGaussianLayer(const string& path) {
+//	try {
+//		auto splats = GSPlyLoader::load(path);
+//
+//		if (!splats) {
+//			println("[Import 3DGS] Failed to load {}", path);
+//			return nullptr;
+//		}
+//
+//		shared_ptr<SNSplats> node = make_shared<SNSplats>(splats->name, splats);
+//
+//		node->dmng.data.writeDepth = false;
+//		node->hidden = false;
+//		node->visible = true;
+//
+//		scene.world->children.push_back(node);
+//
+//		scene.deselectAllNodes();
+//		setSelectedNode(node.get());
+//
+//		println("[Import 3DGS] Loading {}", path);
+//
+//		return node;
+//	}
+//	catch (const std::exception& e) {
+//		println("[Import 3DGS] Failed: {}", e.what());
+//		return nullptr;
+//	}
+//}
+
+SceneNode* SplatEditor::getSelectedTransformLayer()
+{
+	SceneNode* selected = nullptr;
+
+	scene.root->traverse([&](SceneNode* node) {
+		if (selected) return;
+		if (!node || node->hidden || !node->selected || node->locked) return;
+
+		if (dynamic_cast<SNSplats*>(node) != nullptr) selected = node;
+		});
+
+	return selected;
+}
+
+void SplatEditor::applyWorldTransformToSelectedLayer(const mat4& worldDelta)
+{
+	SceneNode* node = getSelectedTransformLayer();
+	if (!node) return;
+
+	const mat4 parentWorld = scene.world->transform;
+	const mat4 localDelta = glm::inverse(parentWorld) * worldDelta * parentWorld;
+
+	node->transform = localDelta * node->transform;
+}
+
+void SplatEditor::updateTeleportPerfFrame() {
+	auto now = std::chrono::steady_clock::now();
+
+	if (!teleport_perf.hasPreviousFrameTime) {
+		teleport_perf.previousFrameTime = now;
+		teleport_perf.hasPreviousFrameTime = true;
+		return;
+	}
+
+	double frameTimeMs = std::chrono::duration<double, std::milli>(now - teleport_perf.previousFrameTime).count();
+	teleport_perf.previousFrameTime = now;
+
+	if (!teleport_perf.enabled || teleport_perf.frameCondition == TeleportPerfCondition::NONE) return;
+
+	switch (teleport_perf.frameCondition) {
+	case TeleportPerfCondition::RENDERING:
+		teleport_perf.renderingFrameTimes.push_back(frameTimeMs);
+		break;
+
+	case TeleportPerfCondition::TARGET_SEARCH:
+		teleport_perf.targetSearchFrameTimes.push_back(frameTimeMs);
+		break;
+
+	case TeleportPerfCondition::REFINEMENT:
+		teleport_perf.refinementFrameTimes.push_back(frameTimeMs);
+		break;
+
+	case TeleportPerfCondition::CARRYING:
+		teleport_perf.carryingFrameTimes.push_back(frameTimeMs);
+		break;
+
+	default:
+		break;
+	}
+}
+
+void SplatEditor::clearTeleportPerf() {
+	teleport_perf.renderingFrameTimes.clear();
+	teleport_perf.targetSearchFrameTimes.clear();
+	teleport_perf.refinementFrameTimes.clear();
+	teleport_perf.carryingFrameTimes.clear();
+}
+
+void SplatEditor::startTeleportPerfCapture(const string& sceneName) {
+	clearTeleportPerf();
+
+	teleport_perf.sceneName = sceneName;
+	teleport_perf.enabled = true;
+	teleport_perf.renderingBaseline = false;
+	teleport_perf.frameCondition = TeleportPerfCondition::NONE;
+	teleport_perf.hasPreviousFrameTime = false;
+
+	println("[Teleport Perf] Started: {}", sceneName);
+}
+
+void SplatEditor::stopTeleportPerfCapture() {
+	if (!teleport_perf.enabled) return;
+
+	teleport_perf.enabled = false;
+	teleport_perf.frameCondition = TeleportPerfCondition::NONE;
+
+	exportTeleportPerfCSV();
+
+	println("[Teleport Perf] Capture finished.");
+	teleport_perf.run++;
+}
+
+bool SplatEditor::hasTeleportCarryLayer() {
+	for (auto& child : scene.world->children) {
+		auto splatNode = dynamic_pointer_cast<SNSplats>(child);
+
+		if (!splatNode || !splatNode->selected) continue;
+		if (splatNode->ID == teleport_environment_layer_id) continue;
+
+		return true;
+	}
+
+	return false;
+}
+
+void SplatEditor::exportTeleportPerfCSV() {
+	const string path = "teleport_performance.csv";
+
+	std::ifstream check(path);
+	bool writeHeader = !check.good() || check.peek() == std::ifstream::traits_type::eof();
+	check.close();
+
+	std::ofstream file(path, std::ios::app);
+	if (!file.is_open()) {
+		println("[Teleport Perf] Failed to open {}", path);
+		return;
+	}
+
+	if (writeHeader) {
+		file << "run,scene,gaussians,mode,condition,frames,duration_s,avg_frame_ms,max_frame_ms,avg_fps,min_fps\n";
+	}
+
+	uint64_t gaussianCount = 0;
+	if (SNSplats* environment = getTeleportEnvironmentLayer()) gaussianCount = environment->dmng.data.count;
+
+	auto modeName = [&]() -> const char* {
+		switch (teleport_mode) {
+		case TeleportMode::DIRECT_SPLAT: return "Direct";
+		case TeleportMode::REFINED_SPLAT: return "Refined";
+		case TeleportMode::INDICATOR_TELEPORT: return "Indicator";
+		case TeleportMode::PLACE_INDICATOR: return "PlaceIndicator";
+		case TeleportMode::ADAPTIVE_SPLAT: return "Adaptive";
+		default: return "Unknown";
+		}
+		};
+
+	auto writeCondition = [&](const char* conditionName, const vector<double>& samples) {
+		if (samples.empty()) return;
+
+		double totalMs = std::accumulate(samples.begin(), samples.end(), 0.0);
+		double avgFrameMs = totalMs / double(samples.size());
+		double maxFrameMs = *std::max_element(samples.begin(), samples.end());
+
+		double avgFPS = 1000.0 / avgFrameMs;
+		double minFPS = 1000.0 / maxFrameMs;
+
+		file << teleport_perf.run << ","
+			<< teleport_perf.sceneName << ","
+			<< gaussianCount << ","
+			<< modeName() << ","
+			<< conditionName << ","
+			<< samples.size() << ","
+			<< totalMs / 1000.0 << ","
+			<< avgFrameMs << ","
+			<< maxFrameMs << ","
+			<< avgFPS << ","
+			<< minFPS << "\n";
+
+		println("[Teleport Perf] {}: frames={}, avg={} Hz, min={} Hz", conditionName, samples.size(), avgFPS, minFPS);
+		};
+
+	writeCondition("Rendering", teleport_perf.renderingFrameTimes);
+	writeCondition("TargetSearch", teleport_perf.targetSearchFrameTimes);
+	writeCondition("Refinement", teleport_perf.refinementFrameTimes);
+	writeCondition("Carrying", teleport_perf.carryingFrameTimes);
+}
+
+string SplatEditor::sanitizeFilename(const string& input) {
+	string result = input;
+
+	for (char& c : result) {
+		bool invalid =
+			c == '\\' || c == '/' || c == ':' || c == '*' ||
+			c == '?' || c == '"' || c == '<' || c == '>' || c == '|'
+			|| c == ' ';
+
+		if (invalid) c = '_';
+	}
+
+	if (result.empty()) result = "Unknown";
+
+	return result;
+}
 
 #include "update/inputHandlingDesktop.h"
 #include "update/inputHandlingVR.h"

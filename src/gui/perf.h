@@ -109,5 +109,26 @@ void SplatEditor::makePerf(){
 			ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
 			ImGui::Text("GPU Memory");
 		}
+		// =====================================================
+		// TELEPORT PERFORMANCE
+		// =====================================================
+		ImGui::Separator();
+		ImGui::Text("Teleport Performance");
+
+		static char perfSceneName[64] = "Museum";
+		ImGui::InputText("Perf Scene", perfSceneName, sizeof(perfSceneName));
+
+		if (!teleport_perf.enabled) {
+			if (ImGui::Button("Start Performance Capture")) {
+				startTeleportPerfCapture(perfSceneName);
+			}
+		}
+		else {
+			ImGui::Checkbox("Rendering Baseline", &teleport_perf.renderingBaseline);
+
+			if (ImGui::Button("Stop + Save Performance")) {
+				stopTeleportPerfCapture();
+			}
+		}
 	}
 }

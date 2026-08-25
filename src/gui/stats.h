@@ -14,55 +14,99 @@ void SplatEditor::makeStats(){
 			// ============================================================
 			// TELEPORT STATISTICS
 			// ============================================================
+			// ============================================================
+// TELEPORT STATISTICS
+// ============================================================
 			ImGui::Text("Teleport Statistics");
 
-			ImGui::Text("Logging: %s", editor->teleport_logging_enabled ? "ON" : "OFF");
+			ImGui::InputText("Participant ID", editor->teleport_participant_id, sizeof(editor->teleport_participant_id));
+			ImGui::InputText("Task", editor->teleport_task_name, sizeof(editor->teleport_task_name));
+			ImGui::InputText("Condition", editor->teleport_condition_name, sizeof(editor->teleport_condition_name));
+
+			ImGui::Text("Recording: %s", editor->teleport_recording_enabled ? "ON" : "OFF");
+
+			// ============================================================
+			// START RECORDING
+			// ============================================================
+			if (!editor->teleport_recording_enabled) {
+				if (ImGui::Button("Start Teleport Recording")) {
+					string participant = string(editor->teleport_participant_id);
+					string task = string(editor->teleport_task_name);
+					string condition = string(editor->teleport_condition_name);
+
+					if (participant.empty() || task.empty() || condition.empty()) {
+						println("[Teleport Log] Please enter Participant ID, Task, and Condition before recording.");
+					}
+					else {
+						participant = editor->sanitizeFilename(participant);
+						task = editor->sanitizeFilename(task);
+						condition = editor->sanitizeFilename(condition);
+
+						editor->teleport_log_filename = format("teleport_log_{}_{}_{}.csv", participant, task, condition);
+
+						editor->teleport_count = 0;
+						editor->teleport_total_distance = 0.0f;
+						editor->teleport_records.clear();
+
+						editor->teleport_refinement_activation_count = 0;
+						editor->teleport_refined_teleport_count = 0;
+
+						editor->teleport_recording_start_time = std::chrono::steady_clock::now();
+						editor->teleport_has_last_record_time = false;
+
+						editor->teleport_recording_enabled = true;
+
+						println("[Teleport Log] Recording started. file={}", editor->teleport_log_filename);
+					}
+				}
+			}
+			else {
+				// ============================================================
+				// STOP RECORDING
+				// ============================================================
+				if (ImGui::Button("Stop Teleport Recording")) {
+					const double totalDuration = std::chrono::duration<double>(std::chrono::steady_clock::now() - editor->teleport_recording_start_time).count();
+
+					editor->teleport_recording_enabled = false;
+
+					println("[Teleport Log] Recording stopped. file={} teleports={} totalDistance={} m duration={} s", editor->teleport_log_filename, editor->teleport_count, editor->teleport_total_distance, totalDuration);
+				}
+			}
+
+			// ============================================================
+			// CURRENT RECORDING INFO
+			// ============================================================
+			ImGui::Text("Current File: %s", editor->teleport_log_filename.empty() ? "Not set" : editor->teleport_log_filename.c_str());
 			ImGui::Text("Teleport Count: %u", editor->teleport_count);
 			ImGui::Text("Total Teleport Distance: %.2f m", editor->teleport_total_distance);
 
+			// ============================================================
+			// LAST TELEPORT
+			// ============================================================
 			if (!editor->teleport_records.empty()) {
 				const TeleportRecord& lastRecord = editor->teleport_records.back();
 
 				const char* modeName = "Unknown";
 
-				if (lastRecord.mode == TeleportMode::DIRECT_SPLAT) {
-					modeName = "Direct Splat";
-				}
-				else if (lastRecord.mode == TeleportMode::INDICATOR_TELEPORT) {
-					modeName = "Indicator";
-				}
-				else if (lastRecord.mode == TeleportMode::PLACE_INDICATOR) {
-					modeName = "Place Indicator";
-				}
+				if (lastRecord.mode == TeleportMode::DIRECT_SPLAT) modeName = "Direct Splat";
+				else if (lastRecord.mode == TeleportMode::REFINED_SPLAT) modeName = "Refined Splat";
+				else if (lastRecord.mode == TeleportMode::INDICATOR_TELEPORT) modeName = "Indicator";
+				else if (lastRecord.mode == TeleportMode::PLACE_INDICATOR) modeName = "Place Indicator";
+				else if (lastRecord.mode == TeleportMode::ADAPTIVE_SPLAT) modeName = "Adaptive Splat";
 
 				ImGui::Separator();
 				ImGui::Text("Last Teleport");
 
+				ImGui::Text("Sequence: %u", lastRecord.sequence);
+				ImGui::Text("Elapsed Time: %.3f s", lastRecord.elapsedTime);
+				ImGui::Text("Interval: %.3f s", lastRecord.intervalTime);
 				ImGui::Text("Mode: %s", modeName);
 
 				if (lastRecord.hasGaussianInfo) {
 					ImGui::Text("Gaussian Index: %u", lastRecord.gaussianIndex);
-
-					ImGui::Text(
-						"Gaussian Local: %.4f, %.4f, %.4f",
-						lastRecord.gaussianLocalPosition.x,
-						lastRecord.gaussianLocalPosition.y,
-						lastRecord.gaussianLocalPosition.z
-					);
-
-					ImGui::Text(
-						"Gaussian World: %.4f, %.4f, %.4f",
-						lastRecord.gaussianWorldPosition.x,
-						lastRecord.gaussianWorldPosition.y,
-						lastRecord.gaussianWorldPosition.z
-					);
-
-					ImGui::Text(
-						"Gaussian Scale: %.6f, %.6f, %.6f",
-						lastRecord.gaussianScale.x,
-						lastRecord.gaussianScale.y,
-						lastRecord.gaussianScale.z
-					);
+					ImGui::Text("Gaussian Local: %.4f, %.4f, %.4f", lastRecord.gaussianLocalPosition.x, lastRecord.gaussianLocalPosition.y, lastRecord.gaussianLocalPosition.z);
+					ImGui::Text("Gaussian World: %.4f, %.4f, %.4f", lastRecord.gaussianWorldPosition.x, lastRecord.gaussianWorldPosition.y, lastRecord.gaussianWorldPosition.z);
+					ImGui::Text("Gaussian Scale: %.6f, %.6f, %.6f", lastRecord.gaussianScale.x, lastRecord.gaussianScale.y, lastRecord.gaussianScale.z);
 					ImGui::Text("Opacity: %.4f", lastRecord.opacity);
 				}
 				else {
@@ -73,25 +117,35 @@ void SplatEditor::makeStats(){
 					ImGui::Text("Opacity: N/A");
 				}
 
-				ImGui::Text(
-					"Teleport Target: %.4f, %.4f, %.4f",
-					lastRecord.targetPosition.x,
-					lastRecord.targetPosition.y,
-					lastRecord.targetPosition.z
-				);
-
+				ImGui::Text("Teleport Target: %.4f, %.4f, %.4f", lastRecord.targetPosition.x, lastRecord.targetPosition.y, lastRecord.targetPosition.z);
 				ImGui::Text("Distance: %.4f m", lastRecord.distance);
+				ImGui::Text("Refinement Used: %s", lastRecord.refinementUsed ? "YES" : "NO");
+
+				if (lastRecord.refinementUsed) {
+					ImGui::Text("Refinement Depth: %.4f m", lastRecord.refinementDepth);
+					ImGui::Text("Refinement Height: %.4f m", lastRecord.refinementHeight);
+				}
 			}
 			else {
 				ImGui::Text("No teleport recorded.");
 			}
 
-			if (ImGui::Button("Reset Teleport Statistics")) {
-				editor->teleport_count = 0;
-				editor->teleport_total_distance = 0.0f;
-				editor->teleport_records.clear();
+			// ============================================================
+			// RESET
+			// ============================================================
+			if (!editor->teleport_recording_enabled) {
+				if (ImGui::Button("Reset Teleport Statistics")) {
+					editor->teleport_count = 0;
+					editor->teleport_total_distance = 0.0f;
+					editor->teleport_records.clear();
 
-				println("[Teleport Log] Statistics reset.");
+					editor->teleport_refinement_activation_count = 0;
+					editor->teleport_refined_teleport_count = 0;
+
+					editor->teleport_log_filename = "";
+
+					println("[Teleport Log] Statistics reset.");
+				}
 			}
 
 			ImGui::Separator();
