@@ -934,6 +934,8 @@ void SplatEditor::inputHandlingVR(){
 				record.mode = teleport_mode;
 				record.targetPosition = teleport_target_position;
 				record.distance = glm::length(delta);
+				const float contentScale = glm::max(getTeleportContentScale(), 0.000001f);
+				record.contentDistance = record.distance / contentScale;
 				record.hasSatorControl = teleport_mode == TeleportMode::SATOR_RAY_CURSOR;
 
 				if (record.hasSatorControl) {
@@ -990,10 +992,18 @@ void SplatEditor::inputHandlingVR(){
 					}
 				}
 
-				teleport_records.push_back(record);
-				appendTeleportRecordToCSV(record);
 				teleport_count++;
 				teleport_total_distance += record.distance;
+				teleport_total_content_distance += record.contentDistance;
+
+				record.cumulativeDistance = teleport_total_distance;
+				record.cumulativeContentDistance = teleport_total_content_distance;
+				record.routeLength = teleport_route_length;
+				record.overshoot = teleport_total_content_distance - teleport_route_length;
+
+				teleport_overshoot = record.overshoot;
+				teleport_records.push_back(record);
+				appendTeleportRecordToCSV(record);
 
 				println(
 					"[Teleport Log] #{} gaussian={} "

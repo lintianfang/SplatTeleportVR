@@ -313,6 +313,11 @@ struct SplatEditor{
 
 		float opacity = -1.0f;
 		float distance = 0.0f;
+		float contentDistance = 0.0f;
+		float cumulativeDistance = 0.0f;
+		float cumulativeContentDistance = 0.0f;
+		float routeLength = 0.0f;
+		float overshoot = 0.0f;
 
 		bool refinementUsed = false;
 		float refinementDepth = 0.0f;
@@ -365,6 +370,10 @@ struct SplatEditor{
 	uint32_t teleport_count = 0;
 	vector<TeleportRecord> teleport_records;
 	float teleport_total_distance = 0.0f;
+	float teleport_total_content_distance = 0.0f;
+	float teleport_route_length = 0.0f;
+	float teleport_overshoot = 0.0f;
+
 	std::chrono::steady_clock::time_point teleport_recording_start_time;
 	std::chrono::steady_clock::time_point teleport_last_record_time;
 	bool teleport_has_last_record_time = false;

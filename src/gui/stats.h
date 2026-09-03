@@ -14,14 +14,42 @@ void SplatEditor::makeStats(){
 			// ============================================================
 			// TELEPORT STATISTICS
 			// ============================================================
-			// ============================================================
-// TELEPORT STATISTICS
-// ============================================================
 			ImGui::Text("Teleport Statistics");
 
-			ImGui::InputText("Participant ID", editor->teleport_participant_id, sizeof(editor->teleport_participant_id));
-			ImGui::InputText("Task", editor->teleport_task_name, sizeof(editor->teleport_task_name));
-			ImGui::InputText("Condition", editor->teleport_condition_name, sizeof(editor->teleport_condition_name));
+			//ImGui::InputText("Participant ID", editor->teleport_participant_id, sizeof(editor->teleport_participant_id));
+			static int participantIndex = 0;
+			static const char* participantIDs[] = {
+				"P01", "P02", "P03", "P04", "P05",
+				"P06", "P07", "P08", "P09", "P10",
+				"P11", "P12", "P13", "P14", "P15",
+				"P16", "P17", "P18", "P19", "P20",
+				"P21", "P22", "P23", "P24", "P25"
+			};
+			if (editor->teleport_participant_id[0] == '\0') {
+				std::snprintf(editor->teleport_participant_id, sizeof(editor->teleport_participant_id), "%s", participantIDs[participantIndex]);
+			}
+			if (ImGui::Combo("Participant ID", &participantIndex, participantIDs, IM_ARRAYSIZE(participantIDs))) {
+				std::snprintf(editor->teleport_participant_id, sizeof(editor->teleport_participant_id), "%s", participantIDs[participantIndex]);
+			}
+			//ImGui::InputText("Task", editor->teleport_task_name, sizeof(editor->teleport_task_name));
+			static int taskIndex = 0;
+			static const char* taskNames[] = {"INDOOR", "OUTDOOR"};
+			if (editor->teleport_task_name[0] == '\0') {
+				std::snprintf(editor->teleport_task_name, sizeof(editor->teleport_task_name), "%s", taskNames[taskIndex]);
+			}
+			if (ImGui::Combo("Task", &taskIndex, taskNames, IM_ARRAYSIZE(taskNames))) {
+				std::snprintf(editor->teleport_task_name, sizeof(editor->teleport_task_name), "%s", taskNames[taskIndex]);
+			}
+			//ImGui::InputText("Condition", editor->teleport_condition_name, sizeof(editor->teleport_condition_name));
+			static int conditionIndex = 2;
+			static const char* conditionNames[] = {"REFINE_RAY", "SATOR", "ANY"};
+			if (editor->teleport_condition_name[0] == '\0') {
+				std::snprintf(editor->teleport_condition_name, sizeof(editor->teleport_condition_name), "%s", conditionNames[conditionIndex]);
+			}
+			if (ImGui::Combo("Condition", &conditionIndex, conditionNames, IM_ARRAYSIZE(conditionNames))) {
+				std::snprintf(editor->teleport_condition_name, sizeof(editor->teleport_condition_name), "%s", conditionNames[conditionIndex]);
+			}
+			ImGui::InputFloat("Route Length (m)", &editor->teleport_route_length, 0.1f, 1.0f, "%.2f");
 
 			ImGui::Text("Recording: %s", editor->teleport_recording_enabled ? "ON" : "OFF");
 
@@ -46,6 +74,7 @@ void SplatEditor::makeStats(){
 
 						editor->teleport_count = 0;
 						editor->teleport_total_distance = 0.0f;
+						editor->teleport_overshoot = 0.0f;
 						editor->teleport_records.clear();
 
 						editor->teleport_refinement_activation_count = 0;
@@ -56,7 +85,7 @@ void SplatEditor::makeStats(){
 
 						editor->teleport_recording_enabled = true;
 
-						println("[Teleport Log] Recording started. file={}", editor->teleport_log_filename);
+						println("[Teleport Log] Recording started. file={} routeLength={}", editor->teleport_log_filename, editor->teleport_route_length);
 					}
 				}
 			}
@@ -69,7 +98,7 @@ void SplatEditor::makeStats(){
 
 					editor->teleport_recording_enabled = false;
 
-					println("[Teleport Log] Recording stopped. file={} teleports={} totalDistance={} m duration={} s", editor->teleport_log_filename, editor->teleport_count, editor->teleport_total_distance, totalDuration);
+					println("[Teleport Log] Recording stopped. file={} teleports={} totalDistance={} routeLength={} overshoot={} duration={} s", editor->teleport_log_filename, editor->teleport_count, editor->teleport_total_distance, editor->teleport_route_length, editor->teleport_overshoot, totalDuration);
 				}
 			}
 
@@ -79,6 +108,8 @@ void SplatEditor::makeStats(){
 			ImGui::Text("Current File: %s", editor->teleport_log_filename.empty() ? "Not set" : editor->teleport_log_filename.c_str());
 			ImGui::Text("Teleport Count: %u", editor->teleport_count);
 			ImGui::Text("Total Teleport Distance: %.2f m", editor->teleport_total_distance);
+			ImGui::Text("Route Length: %.2f m", editor->teleport_route_length);
+			ImGui::Text("Overshoot: %.2f m", editor->teleport_overshoot);
 
 			// ============================================================
 			// LAST TELEPORT
@@ -90,6 +121,7 @@ void SplatEditor::makeStats(){
 
 				if (lastRecord.mode == TeleportMode::DIRECT_SPLAT) modeName = "Direct Splat";
 				else if (lastRecord.mode == TeleportMode::REFINED_SPLAT) modeName = "Refined Splat";
+				else if (lastRecord.mode == TeleportMode::SATOR_RAY_CURSOR) modeName = "SATOR Ray Cursor";
 				else if (lastRecord.mode == TeleportMode::INDICATOR_TELEPORT) modeName = "Indicator";
 				else if (lastRecord.mode == TeleportMode::PLACE_INDICATOR) modeName = "Place Indicator";
 				else if (lastRecord.mode == TeleportMode::ADAPTIVE_SPLAT) modeName = "Adaptive Splat";
@@ -119,6 +151,9 @@ void SplatEditor::makeStats(){
 
 				ImGui::Text("Teleport Target: %.4f, %.4f, %.4f", lastRecord.targetPosition.x, lastRecord.targetPosition.y, lastRecord.targetPosition.z);
 				ImGui::Text("Distance: %.4f m", lastRecord.distance);
+				ImGui::Text("Cumulative Distance: %.4f m", lastRecord.cumulativeDistance);
+				ImGui::Text("Route Length: %.4f m", lastRecord.routeLength);
+				ImGui::Text("Overshoot: %.4f m", lastRecord.overshoot);
 				ImGui::Text("Refinement Used: %s", lastRecord.refinementUsed ? "YES" : "NO");
 
 				if (lastRecord.refinementUsed) {
@@ -137,6 +172,7 @@ void SplatEditor::makeStats(){
 				if (ImGui::Button("Reset Teleport Statistics")) {
 					editor->teleport_count = 0;
 					editor->teleport_total_distance = 0.0f;
+					editor->teleport_overshoot = 0.0f;
 					editor->teleport_records.clear();
 
 					editor->teleport_refinement_activation_count = 0;
