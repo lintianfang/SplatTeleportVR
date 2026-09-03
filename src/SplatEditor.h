@@ -128,6 +128,7 @@ struct SplatEditor{
 	shared_ptr<SNSplats> tempSplats = nullptr;
 	shared_ptr<SNTriangles> sn_vr_editing = nullptr;
 	shared_ptr<SNTriangles> sn_dbgsphere = nullptr;
+	shared_ptr<SNTriangles> sn_teleport_avatar = nullptr;
 	shared_ptr<SNSplats> sn_brushsphere = nullptr;
 
 	vector<SceneNode*> scheduledForRemoval;
@@ -235,6 +236,7 @@ struct SplatEditor{
 	bool suppress_vr_gui_rendering = false;
 	TeleportBeam teleport_beam;
 	TeleportRefinementDisk teleport_refinement_disk;
+	TeleportRefinementDisk teleport_refinement_proxy_disk;
 	bool teleport_converging_guides_enabled = true;
 
 	char teleport_participant_id[64] = "";
@@ -245,9 +247,15 @@ struct SplatEditor{
 	enum class TeleportMode : uint32_t {
 		DIRECT_SPLAT = 0,
 		REFINED_SPLAT = 1,
-		INDICATOR_TELEPORT = 2,
-		PLACE_INDICATOR = 3,
-		ADAPTIVE_SPLAT = 4
+		SATOR_RAY_CURSOR = 2,
+		INDICATOR_TELEPORT = 3,
+		PLACE_INDICATOR = 4,
+		ADAPTIVE_SPLAT = 5
+	};
+
+	enum class SatorDistanceControl : uint32_t {
+		JOYSTICK = 0,
+		TILT = 1
 	};
 
 	enum class TeleportQueryStage : uint32_t {
@@ -262,7 +270,8 @@ struct SplatEditor{
 		RENDERING = 1,
 		TARGET_SEARCH = 2,
 		REFINEMENT = 3,
-		CARRYING = 4
+		CARRYING = 4,
+		SATOR_CONTROL = 5
 	};
 
 	struct TeleportPerfMeasurement {
@@ -281,6 +290,7 @@ struct SplatEditor{
 		vector<double> targetSearchFrameTimes;
 		vector<double> refinementFrameTimes;
 		vector<double> carryingFrameTimes;
+		vector<double> satorControlFrameTimes;
 	};
 
 	TeleportPerfMeasurement teleport_perf;
@@ -290,6 +300,8 @@ struct SplatEditor{
 		double elapsedTime = 0.0;
 		double intervalTime = 0.0;
 		TeleportMode mode = TeleportMode::DIRECT_SPLAT;
+		bool hasSatorControl = false;
+		SatorDistanceControl satorDistanceControl = SatorDistanceControl::JOYSTICK;
 		uint32_t gaussianIndex = std::numeric_limits<uint32_t>::max();
 
 		bool hasGaussianInfo = false;
@@ -363,7 +375,7 @@ struct SplatEditor{
 		mat3 basisAtCreation = mat3(1.0f);
 	};
 
-	TeleportMode teleport_mode = TeleportMode::DIRECT_SPLAT;
+	TeleportMode teleport_mode = TeleportMode::REFINED_SPLAT;
 	std::vector<TeleportIndicator> teleport_indicators;
 	uint32_t next_teleport_indicator_id = 0;
 	int hovered_teleport_indicator = -1;
@@ -396,6 +408,26 @@ struct SplatEditor{
 
 	shared_ptr<SNSplats> pendingImportedAsset = nullptr;
 	bool pendingImportedAssetReady = false;
+	float teleport_user_eye_height = 1.45f;
+
+	// SATOR ray cursor
+	SatorDistanceControl teleport_sator_distance_control = SatorDistanceControl::JOYSTICK;
+
+	bool teleport_sator_active = false;
+	bool teleport_sator_tilt_locked = false;
+
+	float teleport_sator_initial_distance = 0.50f;
+	float teleport_sator_cursor_distance = 0.50f;
+	float teleport_sator_min_distance = 0.20f;
+	float teleport_sator_max_distance = 21.52f;
+
+	float teleport_sator_joystick_hold_time = 0.0f;
+
+	vec3 teleport_sator_locked_origin = vec3(0.0f);
+	vec3 teleport_sator_locked_direction = vec3(0.0f, 0.0f, -1.0f);
+
+	float teleport_sator_locked_elevation = 0.0f;
+	float teleport_sator_tilt_reference_distance = 0.50f;
 
 	struct{
 		float splatSize                  = 1.0f;
@@ -646,7 +678,7 @@ struct SplatEditor{
 	//multi view test
 	void addTeleportEvalViewFromDesktopCamera();
 	void clearTeleportEvalViews();
-	bool showTeleportEvalDebug = true;
+	bool showTeleportEvalDebug = false;
 	bool showTeleportEvalAABB = true;
 	bool showTeleportEvalViews = true;
 	bool showTeleportEvalRays = true;
@@ -686,4 +718,5 @@ struct SplatEditor{
 	bool hasTeleportCarryLayer();
 
 	string sanitizeFilename(const string& input);
+	float getTeleportContentScale();
 };

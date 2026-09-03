@@ -267,6 +267,8 @@ void SplatEditor::setup(){
 	editor->sn_dbgsphere->visible = false;
 	editor->scene.root->children.push_back(editor->sn_dbgsphere);
 
+	//editor->sn_dbgsphere = make_shared<SNTriangles>("debugSphere");
+
 	auto brushsphere = Splats::createSphere();
 	editor->sn_brushsphere = make_shared<SNSplats>("brush sphere", brushsphere);
 	editor->sn_brushsphere->hidden = true;
@@ -1697,84 +1699,151 @@ void SplatEditor::drawTeleportRefinementDisk(vec3 center, vec3 axisDepth, vec3 a
 	teleport_refinement_disk.visible = true;
 }
 
+//void SplatEditor::renderTeleportRefinementDisk(RenderTarget& target, CUstream stream) {
+//	if (!teleport_refinement_disk.visible || !prog_teleport_beam || suppress_vr_gui_rendering) return;
+//
+//	vec3 axisDepth = glm::normalize(teleport_refinement_disk.axisDepth);
+//	vec3 axisHeight = teleport_refinement_disk.axisHeight - glm::dot(teleport_refinement_disk.axisHeight, axisDepth) * axisDepth;
+//	if (glm::length(axisHeight) < 0.0001f) return;
+//	axisHeight = glm::normalize(axisHeight);
+//
+//	mat4 viewProj = target.proj * target.view;
+//	mat4 invViewProj = glm::inverse(viewProj);
+//	mat4 invView = glm::inverse(target.view);
+//	vec3 cameraOrigin = vec3(invView * vec4(0.0f, 0.0f, 0.0f, 1.0f));
+//
+//	float minScreenX = float(target.width);
+//	float minScreenY = float(target.height);
+//	float maxScreenX = 0.0f;
+//	float maxScreenY = 0.0f;
+//	bool hasValidProjection = false;
+//
+//	constexpr int samples = 48;
+//	constexpr float PI = 3.14159265358979323846f;
+//
+//	for (int i = 0; i < samples; i++) {
+//		float angle = 2.0f * PI * float(i) / float(samples);
+//
+//		vec3 p =
+//			teleport_refinement_disk.center +
+//			teleport_refinement_disk.radius *
+//			(cos(angle) * axisDepth + sin(angle) * axisHeight);
+//
+//		vec4 clip = viewProj * vec4(p, 1.0f);
+//		if (clip.w <= 1e-4f) continue;
+//
+//		float sx = (clip.x / clip.w * 0.5f + 0.5f) * float(target.width);
+//		float sy = (clip.y / clip.w * 0.5f + 0.5f) * float(target.height);
+//
+//		minScreenX = glm::min(minScreenX, sx);
+//		minScreenY = glm::min(minScreenY, sy);
+//		maxScreenX = glm::max(maxScreenX, sx);
+//		maxScreenY = glm::max(maxScreenY, sy);
+//
+//		hasValidProjection = true;
+//	}
+//
+//	if (!hasValidProjection) return;
+//	if (maxScreenX < 0.0f || maxScreenY < 0.0f || minScreenX >= float(target.width) || minScreenY >= float(target.height)) return;
+//
+//	const int pad = 4;
+//
+//	int minX = glm::clamp(int(std::floor(minScreenX)) - pad, 0, target.width - 1);
+//	int minY = glm::clamp(int(std::floor(minScreenY)) - pad, 0, target.height - 1);
+//	int maxX = glm::clamp(int(std::ceil(maxScreenX)) + pad, 0, target.width - 1);
+//	int maxY = glm::clamp(int(std::ceil(maxScreenY)) + pad, 0, target.height - 1);
+//
+//	int rectWidth = maxX - minX + 1;
+//	int rectHeight = maxY - minY + 1;
+//
+//	if (rectWidth <= 0 || rectHeight <= 0) return;
+//
+//	int numPixels = rectWidth * rectHeight;
+//
+//	void* args[] = {
+//		&launchArgs,
+//		&target,
+//		&teleport_refinement_disk.center,
+//		&axisDepth,
+//		&axisHeight,
+//		&teleport_refinement_disk.radius,
+//		&teleport_refinement_disk.color,
+//		&invViewProj,
+//		&cameraOrigin,
+//		&minX,
+//		&minY,
+//		&rectWidth,
+//		&rectHeight
+//	};
+//
+//	prog_teleport_beam->launch("kernel_drawTeleportRefinementDisk", args, numPixels, stream);
+//}
 void SplatEditor::renderTeleportRefinementDisk(RenderTarget& target, CUstream stream) {
-	if (!teleport_refinement_disk.visible || !prog_teleport_beam || suppress_vr_gui_rendering) return;
-
-	vec3 axisDepth = glm::normalize(teleport_refinement_disk.axisDepth);
-	vec3 axisHeight = teleport_refinement_disk.axisHeight - glm::dot(teleport_refinement_disk.axisHeight, axisDepth) * axisDepth;
-	if (glm::length(axisHeight) < 0.0001f) return;
-	axisHeight = glm::normalize(axisHeight);
+	if (!prog_teleport_beam || suppress_vr_gui_rendering) return;
 
 	mat4 viewProj = target.proj * target.view;
 	mat4 invViewProj = glm::inverse(viewProj);
 	mat4 invView = glm::inverse(target.view);
 	vec3 cameraOrigin = vec3(invView * vec4(0.0f, 0.0f, 0.0f, 1.0f));
 
-	float minScreenX = float(target.width);
-	float minScreenY = float(target.height);
-	float maxScreenX = 0.0f;
-	float maxScreenY = 0.0f;
-	bool hasValidProjection = false;
+	auto renderDisk = [&](TeleportRefinementDisk& disk) {
+		if (!disk.visible) return;
 
-	constexpr int samples = 48;
-	constexpr float PI = 3.14159265358979323846f;
+		vec3 axisDepth = glm::normalize(disk.axisDepth);
+		vec3 axisHeight = disk.axisHeight - glm::dot(disk.axisHeight, axisDepth) * axisDepth;
+		if (glm::length(axisHeight) < 0.0001f) return;
+		axisHeight = glm::normalize(axisHeight);
 
-	for (int i = 0; i < samples; i++) {
-		float angle = 2.0f * PI * float(i) / float(samples);
+		float minScreenX = float(target.width);
+		float minScreenY = float(target.height);
+		float maxScreenX = 0.0f;
+		float maxScreenY = 0.0f;
+		bool hasValidProjection = false;
 
-		vec3 p =
-			teleport_refinement_disk.center +
-			teleport_refinement_disk.radius *
-			(cos(angle) * axisDepth + sin(angle) * axisHeight);
+		constexpr int samples = 48;
+		constexpr float PI = 3.14159265358979323846f;
 
-		vec4 clip = viewProj * vec4(p, 1.0f);
-		if (clip.w <= 1e-4f) continue;
+		for (int i = 0; i < samples; i++) {
+			float angle = 2.0f * PI * float(i) / float(samples);
+			vec3 p = disk.center + disk.radius * (cos(angle) * axisDepth + sin(angle) * axisHeight);
+			vec4 clip = viewProj * vec4(p, 1.0f);
 
-		float sx = (clip.x / clip.w * 0.5f + 0.5f) * float(target.width);
-		float sy = (clip.y / clip.w * 0.5f + 0.5f) * float(target.height);
+			if (clip.w <= 1e-4f) continue;
 
-		minScreenX = glm::min(minScreenX, sx);
-		minScreenY = glm::min(minScreenY, sy);
-		maxScreenX = glm::max(maxScreenX, sx);
-		maxScreenY = glm::max(maxScreenY, sy);
+			float sx = (clip.x / clip.w * 0.5f + 0.5f) * float(target.width);
+			float sy = (clip.y / clip.w * 0.5f + 0.5f) * float(target.height);
 
-		hasValidProjection = true;
-	}
+			minScreenX = glm::min(minScreenX, sx);
+			minScreenY = glm::min(minScreenY, sy);
+			maxScreenX = glm::max(maxScreenX, sx);
+			maxScreenY = glm::max(maxScreenY, sy);
 
-	if (!hasValidProjection) return;
-	if (maxScreenX < 0.0f || maxScreenY < 0.0f || minScreenX >= float(target.width) || minScreenY >= float(target.height)) return;
+			hasValidProjection = true;
+		}
 
-	const int pad = 4;
+		if (!hasValidProjection) return;
+		if (maxScreenX < 0.0f || maxScreenY < 0.0f || minScreenX >= float(target.width) || minScreenY >= float(target.height)) return;
 
-	int minX = glm::clamp(int(std::floor(minScreenX)) - pad, 0, target.width - 1);
-	int minY = glm::clamp(int(std::floor(minScreenY)) - pad, 0, target.height - 1);
-	int maxX = glm::clamp(int(std::ceil(maxScreenX)) + pad, 0, target.width - 1);
-	int maxY = glm::clamp(int(std::ceil(maxScreenY)) + pad, 0, target.height - 1);
+		const int pad = 4;
 
-	int rectWidth = maxX - minX + 1;
-	int rectHeight = maxY - minY + 1;
+		int minX = glm::clamp(int(std::floor(minScreenX)) - pad, 0, target.width - 1);
+		int minY = glm::clamp(int(std::floor(minScreenY)) - pad, 0, target.height - 1);
+		int maxX = glm::clamp(int(std::ceil(maxScreenX)) + pad, 0, target.width - 1);
+		int maxY = glm::clamp(int(std::ceil(maxScreenY)) + pad, 0, target.height - 1);
 
-	if (rectWidth <= 0 || rectHeight <= 0) return;
+		int rectWidth = maxX - minX + 1;
+		int rectHeight = maxY - minY + 1;
 
-	int numPixels = rectWidth * rectHeight;
+		if (rectWidth <= 0 || rectHeight <= 0) return;
 
-	void* args[] = {
-		&launchArgs,
-		&target,
-		&teleport_refinement_disk.center,
-		&axisDepth,
-		&axisHeight,
-		&teleport_refinement_disk.radius,
-		&teleport_refinement_disk.color,
-		&invViewProj,
-		&cameraOrigin,
-		&minX,
-		&minY,
-		&rectWidth,
-		&rectHeight
-	};
+		int numPixels = rectWidth * rectHeight;
 
-	prog_teleport_beam->launch("kernel_drawTeleportRefinementDisk", args, numPixels, stream);
+		void* args[] = { &launchArgs, &target, &disk.center, &axisDepth, &axisHeight, &disk.radius, &disk.color, &invViewProj, &cameraOrigin, &minX, &minY, &rectWidth, &rectHeight };
+		prog_teleport_beam->launch("kernel_drawTeleportRefinementDisk", args, numPixels, stream);
+		};
+
+	renderDisk(teleport_refinement_disk);
+	renderDisk(teleport_refinement_proxy_disk);
 }
 
 void SplatEditor::drawLine(vec3 start, vec3 end, uint32_t color){
@@ -2761,6 +2830,11 @@ void SplatEditor::setTeleportMode(TeleportMode mode)
 	teleport_refinement_depth = 0.0f;
 	teleport_refinement_height = 0.0f;
 	teleport_content_anchor_position = vec3(0.0f);
+
+	teleport_sator_active = false;
+	teleport_sator_tilt_locked = false;
+	teleport_sator_cursor_distance = teleport_sator_initial_distance;
+	teleport_sator_joystick_hold_time = 0.0f;
 
 	if (sn_dbgsphere) {
 		sn_dbgsphere->visible = false;
@@ -4313,6 +4387,7 @@ void SplatEditor::appendTeleportRecordToCSV(const TeleportRecord& record) {
 			<< "elapsed_time_s,"
 			<< "interval_s,"
 			<< "mode,"
+			<< "sator_control,"
 			<< "distance,"
 			<< "target_x,target_y,target_z,"
 			<< "content_anchor_x,content_anchor_y,content_anchor_z,"
@@ -4331,6 +4406,7 @@ void SplatEditor::appendTeleportRecordToCSV(const TeleportRecord& record) {
 		<< std::fixed << std::setprecision(3) << record.elapsedTime << ","
 		<< std::fixed << std::setprecision(3) << record.intervalTime << ","
 		<< static_cast<uint32_t>(record.mode) << ","
+		<< (record.hasSatorControl ? static_cast<int32_t>(record.satorDistanceControl) : -1) << ","
 		<< std::fixed << std::setprecision(4)
 		<< record.distance << ","
 		<< record.targetPosition.x << ","
@@ -4497,6 +4573,10 @@ void SplatEditor::updateTeleportPerfFrame() {
 		teleport_perf.carryingFrameTimes.push_back(frameTimeMs);
 		break;
 
+	case TeleportPerfCondition::SATOR_CONTROL:
+		teleport_perf.satorControlFrameTimes.push_back(frameTimeMs);
+		break;
+
 	default:
 		break;
 	}
@@ -4507,6 +4587,7 @@ void SplatEditor::clearTeleportPerf() {
 	teleport_perf.targetSearchFrameTimes.clear();
 	teleport_perf.refinementFrameTimes.clear();
 	teleport_perf.carryingFrameTimes.clear();
+	teleport_perf.satorControlFrameTimes.clear();
 }
 
 void SplatEditor::startTeleportPerfCapture(const string& sceneName) {
@@ -4570,6 +4651,7 @@ void SplatEditor::exportTeleportPerfCSV() {
 		switch (teleport_mode) {
 		case TeleportMode::DIRECT_SPLAT: return "Direct";
 		case TeleportMode::REFINED_SPLAT: return "Refined";
+		case TeleportMode::SATOR_RAY_CURSOR: return teleport_sator_distance_control == SatorDistanceControl::JOYSTICK ? "SATOR_Joystick" : "SATOR_Tilt";
 		case TeleportMode::INDICATOR_TELEPORT: return "Indicator";
 		case TeleportMode::PLACE_INDICATOR: return "PlaceIndicator";
 		case TeleportMode::ADAPTIVE_SPLAT: return "Adaptive";
@@ -4606,6 +4688,7 @@ void SplatEditor::exportTeleportPerfCSV() {
 	writeCondition("TargetSearch", teleport_perf.targetSearchFrameTimes);
 	writeCondition("Refinement", teleport_perf.refinementFrameTimes);
 	writeCondition("Carrying", teleport_perf.carryingFrameTimes);
+	writeCondition("SATORControl", teleport_perf.satorControlFrameTimes);
 }
 
 string SplatEditor::sanitizeFilename(const string& input) {
@@ -4623,6 +4706,19 @@ string SplatEditor::sanitizeFilename(const string& input) {
 	if (result.empty()) result = "Unknown";
 
 	return result;
+}
+
+float SplatEditor::getTeleportContentScale()
+{
+	SNSplats* environment = getTeleportEnvironmentLayer();
+
+	if (!environment) {
+		return glm::length(vec3(scene.world->transform[0]));
+	}
+
+	const mat4 contentTransform = scene.world->transform * environment->transform;
+
+	return glm::length(vec3(contentTransform[0]));
 }
 
 #include "update/inputHandlingDesktop.h"

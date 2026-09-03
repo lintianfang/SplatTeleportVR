@@ -973,6 +973,7 @@ void makeTeleportVR(ImguiPage* page)
 {
 	auto editor = SplatEditor::instance;
 	using TeleportMode = SplatEditor::TeleportMode;
+	using SatorDistanceControl = SplatEditor::SatorDistanceControl;
 
 	page->width = 440;
 	page->height = 880;
@@ -1070,6 +1071,7 @@ void makeTeleportVR(ImguiPage* page)
 		drawModeButton("Direct Splat", TeleportMode::DIRECT_SPLAT);
 		drawModeButton("Adaptive Splat", TeleportMode::ADAPTIVE_SPLAT);
 		drawModeButton("Refined Splat", TeleportMode::REFINED_SPLAT);
+		drawModeButton("SATOR Ray Cursor", TeleportMode::SATOR_RAY_CURSOR);
 		drawModeButton("Indicator Teleport", TeleportMode::INDICATOR_TELEPORT);
 		drawModeButton("Place Indicator", TeleportMode::PLACE_INDICATOR);
 
@@ -1077,7 +1079,7 @@ void makeTeleportVR(ImguiPage* page)
 		ImGui::Separator();
 		ImGui::Spacing();
 
-		if (editor->teleport_mode == TeleportMode::DIRECT_SPLAT) {
+		/*if (editor->teleport_mode == TeleportMode::DIRECT_SPLAT) {
 			ImGui::Text("Fixed Search Radius");
 			ImGui::SliderFloat("Radius##FixedTeleport", &editor->teleport_fixed_radius, 0.01f, 0.30f, "%.2f m");
 
@@ -1088,7 +1090,124 @@ void makeTeleportVR(ImguiPage* page)
 			if (GUIVR::Button("Small 1 cm", size)) editor->teleport_fixed_radius = 0.01f;
 			ImGui::SameLine();
 			if (GUIVR::Button("Large 15 cm", size)) editor->teleport_fixed_radius = 0.15f;
+		}*/
+		if (editor->teleport_mode == TeleportMode::DIRECT_SPLAT || editor->teleport_mode == TeleportMode::REFINED_SPLAT) {
+			ImGui::Text("Search Radius: %.0f cm", editor->teleport_fixed_radius * 100.0f);
+
+			ImGui::SliderFloat("Radius##FixedTeleport", &editor->teleport_fixed_radius, 0.01f, 0.20f, "%.2f m");
+
+			const float spacing = ImGui::GetStyle().ItemSpacing.x;
+			const float width = (ImGui::GetContentRegionAvail().x - spacing) * 0.5f;
+			const ImVec2 size(width, 55.0f);
+
+			if (GUIVR::Button("3 cm", size)) editor->teleport_fixed_radius = 0.03f;
+			ImGui::SameLine();
+			if (GUIVR::Button("5 cm", size)) editor->teleport_fixed_radius = 0.05f;
+
+			if (GUIVR::Button("10 cm", size)) editor->teleport_fixed_radius = 0.10f;
+			ImGui::SameLine();
+			if (GUIVR::Button("20 cm", size)) editor->teleport_fixed_radius = 0.20f;
 		}
+		if (editor->teleport_mode == TeleportMode::SATOR_RAY_CURSOR) {
+			ImGui::Text("Distance Control");
+
+			const float spacing = ImGui::GetStyle().ItemSpacing.x;
+			const float width = (ImGui::GetContentRegionAvail().x - spacing) * 0.5f;
+			const ImVec2 size(width, 55.0f);
+
+			const bool joystickSelected =
+				editor->teleport_sator_distance_control ==
+				SatorDistanceControl::JOYSTICK;
+
+			if (joystickSelected) {
+				ImGui::PushStyleColor(
+					ImGuiCol_Button,
+					ImGui::GetStyleColorVec4(ImGuiCol_Header)
+				);
+			}
+
+			if (GUIVR::Button("Joystick", size)) {
+				editor->teleport_sator_distance_control =
+					SatorDistanceControl::JOYSTICK;
+
+				editor->teleport_sator_active = false;
+				editor->teleport_sator_tilt_locked = false;
+				editor->teleport_sator_cursor_distance =
+					editor->teleport_sator_initial_distance;
+				editor->teleport_target_valid = false;
+			}
+
+			if (joystickSelected) {
+				ImGui::PopStyleColor();
+			}
+
+			ImGui::SameLine();
+
+			const bool tiltSelected =
+				editor->teleport_sator_distance_control ==
+				SatorDistanceControl::TILT;
+
+			if (tiltSelected) {
+				ImGui::PushStyleColor(
+					ImGuiCol_Button,
+					ImGui::GetStyleColorVec4(ImGuiCol_Header)
+				);
+			}
+
+			if (GUIVR::Button("Tilt", size)) {
+				editor->teleport_sator_distance_control =
+					SatorDistanceControl::TILT;
+
+				editor->teleport_sator_active = false;
+				editor->teleport_sator_tilt_locked = false;
+				editor->teleport_sator_cursor_distance =
+					editor->teleport_sator_initial_distance;
+				editor->teleport_target_valid = false;
+			}
+
+			if (tiltSelected) {
+				ImGui::PopStyleColor();
+			}
+
+			ImGui::Text(
+				"Cursor Distance: %.2f m",
+				editor->teleport_sator_cursor_distance
+			);
+
+			ImGui::Text(
+				"Range: %.2f - %.2f m",
+				editor->teleport_sator_min_distance,
+				editor->teleport_sator_max_distance
+			);
+		}
+
+		/*if (editor->teleport_mode == TeleportMode::DIRECT_SPLAT || editor->teleport_mode == TeleportMode::REFINED_SPLAT) {
+			ImGui::Spacing();
+			ImGui::Separator();
+			ImGui::Spacing();
+
+			ImGui::Text("Opacity Filter");
+
+			ImGui::Checkbox("Enabled##TeleportOpacity", &editor->teleport_opacity_filter_enabled);
+
+			if (editor->teleport_opacity_filter_enabled) {
+				ImGui::Text("Threshold: %.2f", editor->teleport_opacity_threshold);
+
+				ImGui::SliderFloat("Opacity##Teleport", &editor->teleport_opacity_threshold, 0.0f, 0.30f, "%.2f");
+
+				const float spacing = ImGui::GetStyle().ItemSpacing.x;
+				const float width = (ImGui::GetContentRegionAvail().x - spacing) * 0.5f;
+				const ImVec2 size(width, 55.0f);
+
+				if (GUIVR::Button("0.01", size)) editor->teleport_opacity_threshold = 0.01f;
+				ImGui::SameLine();
+				if (GUIVR::Button("0.05", size)) editor->teleport_opacity_threshold = 0.05f;
+
+				if (GUIVR::Button("0.10", size)) editor->teleport_opacity_threshold = 0.10f;
+				ImGui::SameLine();
+				if (GUIVR::Button("0.20", size)) editor->teleport_opacity_threshold = 0.20f;
+			}
+		}*/
 
 		if (editor->teleport_mode == TeleportMode::ADAPTIVE_SPLAT) {
 			ImGui::Text("Adaptive Search");

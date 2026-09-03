@@ -148,6 +148,7 @@ void SplatEditor::inputHandlingVR(){
 	Controller right = ovr->getRightController();
 	teleport_beam.visible = false;
 	teleport_refinement_disk.visible = false;  //for refine disk
+	teleport_refinement_proxy_disk.visible = false;
 	bool teleportExecutedThisFrame = false;
 	//bool skipTransformSelectionThisFrame = false;
 	editor->initializeTeleportEnvironmentLayer();
@@ -186,17 +187,139 @@ void SplatEditor::inputHandlingVR(){
 				vec4(0.0f, 0.0f, -1.0f, 0.0f)
 			)
 		);
+		// ============================================================
+	// SATOR RAY CURSOR
+	// Generates teleport_target_position without Gaussian queries.
+	// ============================================================
+		if (teleport_mode == TeleportMode::SATOR_RAY_CURSOR && right.isTriggerPressed()) {
+
+			// Start a new SATOR target specification.
+			if (!teleport_sator_active) {
+				teleport_sator_active = true;
+				teleport_sator_cursor_distance = teleport_sator_initial_distance;
+				teleport_sator_joystick_hold_time = 0.0f;
+
+				if (teleport_sator_distance_control == SatorDistanceControl::TILT) {
+					teleport_sator_tilt_locked = true;
+					teleport_sator_locked_origin = teleportRayOrigin;
+					teleport_sator_locked_direction = teleportRayDirection;
+
+					teleport_sator_locked_elevation =
+						std::asin(glm::clamp(teleportRayDirection.z, -1.0f, 1.0f));
+
+					teleport_sator_tilt_reference_distance =
+						teleport_sator_cursor_distance;
+				}
+			}
+
+			// --------------------------------------------------------
+			// SATOR JOYSTICK
+			// Simultaneous aiming + rate-based distance control.
+			// --------------------------------------------------------
+			if (teleport_sator_distance_control == SatorDistanceControl::JOYSTICK) {
+				const float joystick = right.state.rAxis[0].y;
+				const float deadzone = 0.15f;
+				const float dt = float(GLRenderer::timeSinceLastFrame);
+
+				if (std::abs(joystick) > deadzone) {
+					teleport_sator_joystick_hold_time += dt;
+
+					const float acceleration =
+						glm::clamp(teleport_sator_joystick_hold_time / 2.5f, 0.0f, 1.0f);
+
+					const float speed =
+						glm::mix(0.47f, 11.62f, acceleration);
+
+					teleport_sator_cursor_distance +=
+						joystick * speed * dt;
+				}
+				else {
+					teleport_sator_joystick_hold_time = 0.0f;
+				}
+
+				teleport_sator_cursor_distance =
+					glm::clamp(
+						teleport_sator_cursor_distance,
+						teleport_sator_min_distance,
+						teleport_sator_max_distance
+					);
+
+				teleport_target_position =
+					teleportRayOrigin +
+					teleportRayDirection *
+					teleport_sator_cursor_distance;
+
+				teleport_target_valid = true;
+			}
+
+			// --------------------------------------------------------
+			// SATOR TILT
+			// Ray is frozen when targeting begins.
+			// Controller tilt only changes cursor depth.
+			// --------------------------------------------------------
+			else if (
+				teleport_sator_distance_control == SatorDistanceControl::TILT &&
+				teleport_sator_tilt_locked
+				) {
+				const float currentElevation = std::asin(glm::clamp(teleportRayDirection.z, -1.0f, 1.0f));
+
+				float tiltDelta = currentElevation - teleport_sator_locked_elevation;
+
+				const float maxTilt = glm::radians(40.0f);
+
+				tiltDelta = glm::clamp(tiltDelta, -maxTilt, maxTilt);
+
+				const float normalizedTilt = tiltDelta / maxTilt;
+
+				// Upwards tilt -> farther away.
+				if (normalizedTilt >= 0.0f) {
+					teleport_sator_cursor_distance = teleport_sator_tilt_reference_distance + normalizedTilt * (teleport_sator_max_distance - teleport_sator_tilt_reference_distance);
+				}
+				// Downwards tilt -> closer to user.
+				else {
+					teleport_sator_cursor_distance = teleport_sator_tilt_reference_distance + normalizedTilt * (teleport_sator_tilt_reference_distance - teleport_sator_min_distance);
+				}
+
+				teleport_sator_cursor_distance = glm::clamp(teleport_sator_cursor_distance, teleport_sator_min_distance, teleport_sator_max_distance);
+
+				teleport_target_position = teleport_sator_locked_origin + teleport_sator_locked_direction * teleport_sator_cursor_distance;
+
+				teleport_target_valid = true;
+			}
+
+			if (sn_dbgsphere && teleport_target_valid) {
+				sn_dbgsphere->visible = true;
+				sn_dbgsphere->transform = glm::translate(teleport_target_position) * glm::scale(vec3(0.08f));
+			}
+		}
+
 
 		if (right.isTriggerPressed()) {
+			vec3 beamOrigin = teleportRayOrigin;
+			vec3 beamDirection = teleportRayDirection;
+
+			// In SATOR Tilt, the ray remains fixed after locking.
+			if (
+				teleport_mode == TeleportMode::SATOR_RAY_CURSOR &&
+				teleport_sator_distance_control == SatorDistanceControl::TILT &&
+				teleport_sator_tilt_locked
+				) {
+				beamOrigin = teleport_sator_locked_origin;
+				beamDirection = teleport_sator_locked_direction;
+			}
 
 			vec3 teleportRayEnd =
-				teleportRayOrigin +
-				teleportRayDirection * 30.0f;
+				beamOrigin +
+				beamDirection * 30.0f;
 
-			/*if (teleport_target_valid) {
+			// SATOR shows the complete fixed-length ray.
+			// The sphere marks the movable cursor.
+			if (teleport_mode == TeleportMode::SATOR_RAY_CURSOR) {
 				teleportRayEnd =
-					teleport_target_position;
-			}*/
+					beamOrigin +
+					beamDirection *
+					teleport_sator_max_distance;
+			}
 			if (teleport_target_valid) {
 				if (teleport_mode == TeleportMode::REFINED_SPLAT && teleport_refinement_active) teleportRayEnd = teleport_content_anchor_position;
 				else teleportRayEnd = teleport_target_position;
@@ -205,7 +328,7 @@ void SplatEditor::inputHandlingVR(){
 			const float beamRadius = 0.01f;
 			const vec4 beamColor = teleport_target_valid ? vec4(0.05f, 0.65f, 1.0f, 1.0f) : vec4(0.10f, 0.40f, 1.0f, 1.0f);
 			drawTeleportBeam(teleportBeamStart, teleportRayEnd, beamRadius, beamRadius, beamColor);
-			if (teleport_converging_guides_enabled && teleport_target_valid && !teleport_refinement_active) {
+			if (teleport_converging_guides_enabled && teleport_target_valid && !teleport_refinement_active && teleport_mode != TeleportMode::SATOR_RAY_CURSOR) {
 				drawTeleportConvergingGuides(teleportRayOrigin, teleportRayDirection, teleportRayEnd);
 			}
 		}
@@ -588,8 +711,10 @@ void SplatEditor::inputHandlingVR(){
 				teleport_query_stage = TeleportQueryStage::NONE;
 
 				if (sn_dbgsphere) {
+					const float contentScale = getTeleportContentScale();
+					const float markerScale = glm::max(0.08f * contentScale, 0.02f);
 					sn_dbgsphere->visible = true;
-					sn_dbgsphere->transform = glm::translate(teleport_target_position) * glm::scale(vec3(0.08f));
+					sn_dbgsphere->transform = glm::translate(teleport_target_position) * glm::scale(vec3(markerScale));
 				}
 			}
 		}
@@ -630,23 +755,24 @@ void SplatEditor::inputHandlingVR(){
 		if (teleport_refinement_active && touchLength > teleport_refinement_activation_threshold) {
 			if (touchLength > 1.0f) touch /= touchLength;
 
-			teleport_refinement_depth = touch.x * teleport_refinement_radius;
-			teleport_refinement_height = touch.y * teleport_refinement_radius;
+			const float contentScale = getTeleportContentScale();
+			const float scaledRefinementRadius = teleport_refinement_radius * contentScale;
+
+			teleport_refinement_depth = touch.x * scaledRefinementRadius;
+			teleport_refinement_height = touch.y * scaledRefinementRadius;
 
 			const vec3 up(0.0f, 0.0f, 1.0f);
 
-			teleport_target_position =
-				teleport_content_anchor_position +
-				teleport_refinement_depth * teleport_refinement_forward +
-				teleport_refinement_height * up;
-
+			teleport_target_position = teleport_content_anchor_position + teleport_refinement_depth * teleport_refinement_forward + teleport_refinement_height * up;
+			
 			if (sn_dbgsphere) {
+				const float markerScale = glm::max(0.08f * contentScale, 0.02f);
 				sn_dbgsphere->visible = true;
-				sn_dbgsphere->transform = glm::translate(teleport_target_position) * glm::scale(vec3(0.08f));
+				sn_dbgsphere->transform = glm::translate(teleport_target_position) * glm::scale(vec3(markerScale));
 			}
 		}
 	}
-	if (teleport_mode == TeleportMode::REFINED_SPLAT && teleport_refinement_active && teleport_target_valid && right.isTriggerPressed()) {
+	/*if (teleport_mode == TeleportMode::REFINED_SPLAT && teleport_refinement_active && teleport_target_valid && right.isTriggerPressed()) {
 		const vec3 up(0.0f, 0.0f, 1.0f);
 		const vec4 diskColor(0.05f, 0.65f, 1.0f, 0.80f);
 
@@ -657,6 +783,56 @@ void SplatEditor::inputHandlingVR(){
 			teleport_refinement_radius,
 			diskColor
 		);
+	}*/
+	if (teleport_mode == TeleportMode::REFINED_SPLAT && teleport_refinement_active && teleport_target_valid && right.isTriggerPressed()) {
+		const vec3 up(0.0f, 0.0f, 1.0f);
+		const vec4 diskColor(0.05f, 0.65f, 1.0f, 0.80f);
+		const float contentScale = getTeleportContentScale();
+		const float scaledRefinementRadius = teleport_refinement_radius * contentScale;
+
+		drawTeleportRefinementDisk(teleport_content_anchor_position, teleport_refinement_forward, up, scaledRefinementRadius, diskColor);
+
+		// Controller-proximal copy.
+		if (left.valid) {
+			const mat4 leftPose = mat4(ovr->flip * left.transform);
+
+			// Local offset from the left controller.
+			const vec3 proxyCenter = vec3(leftPose * vec4(-0.10f, 0.06f, -0.12f, 1.0f));
+
+			// Make the proxy disk face the HMD.
+			const vec3 hmdPosition = vec3(ovr->flip * ovr->getHmdPose() * vec4(0.0f, 0.0f, 0.0f, 1.0f));
+
+			vec3 toHmd = hmdPosition - proxyCenter;
+			if (glm::length(toHmd) > 0.0001f) {
+				toHmd = glm::normalize(toHmd);
+
+				vec3 proxyDepth = glm::cross(up, toHmd);
+				if (glm::length(proxyDepth) < 0.0001f) proxyDepth = vec3(1.0f, 0.0f, 0.0f);
+				else proxyDepth = glm::normalize(proxyDepth);
+
+				vec3 proxyHeight = glm::normalize(glm::cross(toHmd, proxyDepth));
+
+				const float proxyRadius = 0.06f;
+
+				teleport_refinement_proxy_disk.center = proxyCenter;
+				teleport_refinement_proxy_disk.axisDepth = proxyDepth;
+				teleport_refinement_proxy_disk.axisHeight = proxyHeight;
+				teleport_refinement_proxy_disk.radius = proxyRadius;
+				teleport_refinement_proxy_disk.color = diskColor;
+				teleport_refinement_proxy_disk.visible = true;
+
+				// Mirror the current refinement position onto the small disk.
+				const float contentScale = getTeleportContentScale();
+				const float scaledRefinementRadius = teleport_refinement_radius * contentScale;
+
+				const float normalizedDepth = glm::clamp(teleport_refinement_depth / scaledRefinementRadius, -1.0f, 1.0f);
+				const float normalizedHeight = glm::clamp(teleport_refinement_height / scaledRefinementRadius, -1.0f, 1.0f);
+
+				const vec3 proxyTarget = proxyCenter + normalizedDepth * proxyRadius * proxyDepth + normalizedHeight * proxyRadius * proxyHeight;
+
+				drawSphere({ .pos = proxyTarget, .scale = vec3(0.012f), .color = vec4(1.0f, 0.15f, 0.10f, 1.0f) });
+			}
+		}
 	}
 	if (teleport_perf.enabled) {
 		TeleportPerfCondition condition = TeleportPerfCondition::NONE;
@@ -670,16 +846,16 @@ void SplatEditor::inputHandlingVR(){
 				teleport_mode == TeleportMode::REFINED_SPLAT ||
 				teleport_mode == TeleportMode::ADAPTIVE_SPLAT;
 
-			const bool carrying =
-				right.isMenuPressed() &&
-				grabbedGuiNode == nullptr &&
-				hasTeleportCarryLayer();
+			const bool carrying = right.isMenuPressed() && grabbedGuiNode == nullptr && hasTeleportCarryLayer();
 
 			if (carrying) {
 				condition = TeleportPerfCondition::CARRYING;
 			}
 			else if (teleport_mode == TeleportMode::REFINED_SPLAT && teleport_refinement_active) {
 				condition = TeleportPerfCondition::REFINEMENT;
+			}
+			else if (teleport_mode == TeleportMode::SATOR_RAY_CURSOR) {
+				condition = TeleportPerfCondition::SATOR_CONTROL;
 			}
 			else if (contentTeleport) {
 				condition = TeleportPerfCondition::TARGET_SEARCH;
@@ -702,35 +878,37 @@ void SplatEditor::inputHandlingVR(){
 				sn_dbgsphere->visible = false;
 			}
 		}
-		else if (teleport_mode == TeleportMode::DIRECT_SPLAT || teleport_mode == TeleportMode::REFINED_SPLAT || teleport_mode == TeleportMode::INDICATOR_TELEPORT || teleport_mode == TeleportMode::ADAPTIVE_SPLAT)
+		else if (teleport_mode == TeleportMode::DIRECT_SPLAT || teleport_mode == TeleportMode::REFINED_SPLAT || teleport_mode == TeleportMode::SATOR_RAY_CURSOR || teleport_mode == TeleportMode::INDICATOR_TELEPORT || teleport_mode == TeleportMode::ADAPTIVE_SPLAT)
 		{
-			vec3 hmdPosition = vec3(
-				ovr->flip *
-				ovr->getHmdPose() *
-				vec4{
-					0.0f,
-					0.0f,
-					0.0f,
-					1.0f
-				}
-			);
+			vec3 hmdPosition = vec3(ovr->flip * ovr->getHmdPose() * vec4(0.0f, 0.0f, 0.0f, 1.0f));
 
-			/*
-			 * 移动整个虚拟世界，
-			 * 让目标点来到用户当前位置。
-			 *
-			 * 第一版只移动水平 XY，
-			 * 暂时不改变用户高度。
-			 */
+			const mat4 rightControllerPose = mat4(ovr->flip * right.transform);
+			const vec3 rightControllerPosition = vec3(rightControllerPose * vec4(0.0f, 0.0f, 0.0f, 1.0f));
+
 			//vec3 delta = hmdPosition - teleport_target_position;
-			//delta.z = 0.0f;
-			vec3 delta = hmdPosition - teleport_target_position;
 
-			const bool use3DRefinedDestination =
-				teleport_mode == TeleportMode::REFINED_SPLAT &&
-				teleport_refinement_active;
+			//const bool use3DRefinedDestination = teleport_mode == TeleportMode::REFINED_SPLAT && teleport_refinement_active;
 
-			if (!use3DRefinedDestination) delta.z = 0.0f;
+			//if (!use3DRefinedDestination) {
+			//	//const float controllerToHmdHeight = hmdPosition.z - rightControllerPosition.z;
+			//	//const float desiredHmdHeight = teleport_target_position.z + controllerToHmdHeight;
+
+			//	//delta.z = hmdPosition.z - desiredHmdHeight;
+			//	delta.z = hmdPosition.z - teleport_user_eye_height - teleport_target_position.z;
+			//}
+			vec3 delta;
+			if (teleport_mode == TeleportMode::SATOR_RAY_CURSOR) {
+				delta = rightControllerPosition - teleport_target_position;
+			}
+			else {
+				delta = hmdPosition - teleport_target_position;
+				const bool use3DRefinedDestination = teleport_mode == TeleportMode::REFINED_SPLAT && teleport_refinement_active;
+				if (!use3DRefinedDestination) {
+					const float contentScale = getTeleportContentScale();
+					const float scaledEyeHeight = teleport_user_eye_height * contentScale;
+					delta.z = hmdPosition.z - scaledEyeHeight - teleport_target_position.z;
+				}
+			}
 			if (teleport_recording_enabled) {
 				TeleportRecord record;
 
@@ -756,6 +934,11 @@ void SplatEditor::inputHandlingVR(){
 				record.mode = teleport_mode;
 				record.targetPosition = teleport_target_position;
 				record.distance = glm::length(delta);
+				record.hasSatorControl = teleport_mode == TeleportMode::SATOR_RAY_CURSOR;
+
+				if (record.hasSatorControl) {
+					record.satorDistanceControl = teleport_sator_distance_control;
+				}
 
 				record.refinementUsed = teleport_mode == TeleportMode::REFINED_SPLAT && teleport_refinement_active;
 				record.refinementDepth = record.refinementUsed ? teleport_refinement_depth : 0.0f;
@@ -895,6 +1078,10 @@ void SplatEditor::inputHandlingVR(){
 			teleport_refinement_active = false;
 			teleport_refinement_depth = 0.0f;
 			teleport_refinement_height = 0.0f;
+			teleport_sator_active = false;
+			teleport_sator_tilt_locked = false;
+			teleport_sator_cursor_distance = teleport_sator_initial_distance;
+			teleport_sator_joystick_hold_time = 0.0f;
 
 			if (sn_dbgsphere) {
 				sn_dbgsphere->visible = false;
@@ -1088,6 +1275,10 @@ void SplatEditor::inputHandlingVR(){
 		else {
 			scene.world->transform = transform * scene.world->transform;
 		}
+		const float worldScale = glm::length(vec3(scene.world->transform[0]));
+		const float layerScale = selectedLayer ? glm::length(vec3(selectedLayer->transform[0])) : 1.0f;
+
+		println("[Scale] selectedLayer={} frameScale={} worldScale={} layerScale={}", selectedLayer ? 1 : 0, scale, worldScale, layerScale);
 
 	}else if(right.isGripPressed()){
 		// GRIP TRANSLATE
@@ -1101,11 +1292,7 @@ void SplatEditor::inputHandlingVR(){
 
 	// FLY-THROUGH USING RIGHT JOYSTICK
 	//if(!editor->state_vr.menu_intersects){ 
-	const bool teleportTargetingActive =
-		teleport_mode == TeleportMode::REFINED_SPLAT &&
-		right.valid &&
-		right.isTriggerPressed();
-
+	const bool teleportTargetingActive = right.valid && right.isTriggerPressed() && (teleport_mode == TeleportMode::REFINED_SPLAT || teleport_mode == TeleportMode::SATOR_RAY_CURSOR);
 	if (!editor->state_vr.menu_intersects && !teleportTargetingActive) {
 
 		mat4 mRot = glm::rotate(-140.0f * 3.1415f / 180.0f, vec3{ 1.0f, 0.0f, 0.0f });
