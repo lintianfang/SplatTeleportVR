@@ -628,6 +628,14 @@ void SplatEditor::inputHandlingVR(){
 
 				bool fallbackLaunched = false;
 				SNSplats* node = editor->getTeleportEnvironmentLayer();
+				if (node) {
+					println(
+						"[Teleport Query] environment='{}' ID={} cachedID={}",
+						node->name,
+						node->ID,
+						teleport_environment_layer_id
+					);
+				}
 
 				if (node && node->visible && node->dmng.data.count > 0) {
 					GaussianData model = node->dmng.data;

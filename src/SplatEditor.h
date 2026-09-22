@@ -91,7 +91,7 @@ struct TeleportRefinementDisk {
 	vec3 center = vec3(0.0f);
 	vec3 axisDepth = vec3(0.0f, 1.0f, 0.0f);
 	vec3 axisHeight = vec3(0.0f, 0.0f, 1.0f);
-	float radius = 1.25f;
+	float radius = 1.75f;
 	vec4 color = vec4(0.05f, 0.65f, 1.0f, 0.20f);
 	bool visible = false;
 };

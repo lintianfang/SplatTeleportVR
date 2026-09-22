@@ -750,13 +750,7 @@ void kernel_clear_highlighting(CommonLaunchArgs args, GaussianData model){
 
 
 extern "C" __global__
-void kernel_select_sphere(
-	CommonLaunchArgs args, 
-	GaussianData model,
-	vec3 spherePos,
-	float radius,
-	uint32_t* splatmask
-){
+void kernel_select_sphere(CommonLaunchArgs args, GaussianData model, vec3 spherePos, float radius, uint32_t* splatmask){
 	auto grid = cg::this_grid();
 	auto block = cg::this_thread_block();
 
