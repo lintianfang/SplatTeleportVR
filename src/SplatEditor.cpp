@@ -267,6 +267,89 @@ void SplatEditor::setup(){
 	editor->sn_dbgsphere->visible = false;
 	editor->scene.root->children.push_back(editor->sn_dbgsphere);
 
+	// ============================================================
+// TELEPORT AVATAR
+// ============================================================
+
+	const string teleportAvatarPath =
+		"./resources/models/teleport_avatar_splatshop_medium_poly_black_glasses.ply";
+
+	if (std::filesystem::exists(teleportAvatarPath)) {
+
+		println(
+			"[Teleport Avatar] Loading: {}",
+			teleportAvatarPath
+		);
+
+		try {
+			PLYMesh avatar =
+				PLYMeshLoader::load(
+					teleportAvatarPath
+				);
+
+			editor->sn_teleport_avatar_parts.clear();
+
+			for (size_t i = 0; i < avatar.parts.size(); i++) {
+				const PLYMeshPart& part = avatar.parts[i];
+				if (part.positions.empty()) {
+					continue;
+				}
+				auto node = make_shared<SNTriangles>("TeleportAvatar_" + to_string(i));
+
+				// Geometry only.
+				node->set(part.positions, part.uvs);
+
+				// Actual surface color.
+				node->material.color = part.color;
+
+				node->material.mode = MATERIAL_MODE_COLOR;
+
+				node->hidden = true;
+				node->visible = false;
+
+				editor->scene.root->children.push_back(
+					node
+				);
+
+				editor
+					->sn_teleport_avatar_parts
+					.push_back(node);
+
+				println(
+					"[Teleport Avatar] Part {}: "
+					"{} triangles, "
+					"color=({}, {}, {}, {})",
+					i,
+					part.positions.size() / 3,
+					part.color.r,
+					part.color.g,
+					part.color.b,
+					part.color.a
+				);
+			}
+
+			println(
+				"[Teleport Avatar] Loaded {} parts, "
+				"{} triangles.",
+				editor
+				->sn_teleport_avatar_parts
+				.size(),
+				avatar.triangleCount
+			);
+		}
+		catch (const std::exception& error) {
+
+			println("[Teleport Avatar] Failed: {}", error.what()
+			);
+		}
+	}
+	else {
+
+		println(
+			"[Teleport Avatar] Model not found: {}",
+			teleportAvatarPath
+		);
+	}
 	//editor->sn_dbgsphere = make_shared<SNTriangles>("debugSphere");
 
 	auto brushsphere = Splats::createSphere();
@@ -1697,6 +1780,122 @@ void SplatEditor::drawTeleportRefinementDisk(vec3 center, vec3 axisDepth, vec3 a
 	teleport_refinement_disk.radius = radius;
 	teleport_refinement_disk.color = color;
 	teleport_refinement_disk.visible = true;
+}
+
+void SplatEditor::drawTeleportRefinementProxyWord(const string& text, vec3 center, vec3 axisX, vec3 axisY) {
+	if (text.empty()) return;
+
+	axisX = glm::normalize(axisX);
+	axisY = glm::normalize(axisY);
+
+	const float charWidth = 0.008f;
+	const float charHeight = 0.014f;
+	const float spacing = 0.002f;
+	const float totalWidth = charWidth * float(text.size()) + spacing * float(text.size() - 1);
+	const uint32_t color = 0xffffffff;
+
+	const vec3 start = center - 0.5f * totalWidth * axisX - 0.5f * charHeight * axisY;
+
+	auto drawGlyph = [&](char c, float offset) {
+		auto line = [&](float x0, float y0, float x1, float y1) {
+			const vec3 a = start + (offset + x0 * charWidth) * axisX + y0 * charHeight * axisY;
+			const vec3 b = start + (offset + x1 * charWidth) * axisX + y1 * charHeight * axisY;
+			drawLine(a, b, color);
+			};
+
+		switch (c) {
+		case 'F':
+			line(0.0f, 0.0f, 0.0f, 1.0f);
+			line(0.0f, 1.0f, 1.0f, 1.0f);
+			line(0.0f, 0.5f, 0.8f, 0.5f);
+			break;
+
+		case 'R':
+			line(0.0f, 0.0f, 0.0f, 1.0f);
+			line(0.0f, 1.0f, 0.8f, 1.0f);
+			line(0.8f, 1.0f, 0.8f, 0.5f);
+			line(0.0f, 0.5f, 0.8f, 0.5f);
+			line(0.4f, 0.5f, 1.0f, 0.0f);
+			break;
+
+		case 'O':
+			line(0.0f, 0.0f, 0.0f, 1.0f);
+			line(0.0f, 1.0f, 1.0f, 1.0f);
+			line(1.0f, 1.0f, 1.0f, 0.0f);
+			line(1.0f, 0.0f, 0.0f, 0.0f);
+			break;
+
+		case 'N':
+			line(0.0f, 0.0f, 0.0f, 1.0f);
+			line(0.0f, 1.0f, 1.0f, 0.0f);
+			line(1.0f, 0.0f, 1.0f, 1.0f);
+			break;
+
+		case 'T':
+			line(0.0f, 1.0f, 1.0f, 1.0f);
+			line(0.5f, 1.0f, 0.5f, 0.0f);
+			break;
+
+		case 'B':
+			line(0.0f, 0.0f, 0.0f, 1.0f);
+			line(0.0f, 1.0f, 0.8f, 1.0f);
+			line(0.0f, 0.5f, 0.8f, 0.5f);
+			line(0.0f, 0.0f, 0.8f, 0.0f);
+			line(0.8f, 1.0f, 0.8f, 0.5f);
+			line(0.8f, 0.5f, 0.8f, 0.0f);
+			break;
+
+		case 'A':
+			line(0.0f, 0.0f, 0.5f, 1.0f);
+			line(0.5f, 1.0f, 1.0f, 0.0f);
+			line(0.2f, 0.45f, 0.8f, 0.45f);
+			break;
+
+		case 'C':
+			line(1.0f, 1.0f, 0.0f, 1.0f);
+			line(0.0f, 1.0f, 0.0f, 0.0f);
+			line(0.0f, 0.0f, 1.0f, 0.0f);
+			break;
+
+		case 'K':
+			line(0.0f, 0.0f, 0.0f, 1.0f);
+			line(0.0f, 0.5f, 1.0f, 1.0f);
+			line(0.0f, 0.5f, 1.0f, 0.0f);
+			break;
+		case 'U':
+			line(0.0f, 1.0f, 0.0f, 0.0f);
+			line(0.0f, 0.0f, 1.0f, 0.0f);
+			line(1.0f, 0.0f, 1.0f, 1.0f);
+			break;
+
+		case 'P':
+			line(0.0f, 0.0f, 0.0f, 1.0f);
+			line(0.0f, 1.0f, 0.8f, 1.0f);
+			line(0.8f, 1.0f, 0.8f, 0.5f);
+			line(0.8f, 0.5f, 0.0f, 0.5f);
+			break;
+
+		case 'D':
+			line(0.0f, 0.0f, 0.0f, 1.0f);
+			line(0.0f, 1.0f, 0.75f, 1.0f);
+			line(0.75f, 1.0f, 1.0f, 0.75f);
+			line(1.0f, 0.75f, 1.0f, 0.25f);
+			line(1.0f, 0.25f, 0.75f, 0.0f);
+			line(0.75f, 0.0f, 0.0f, 0.0f);
+			break;
+
+		case 'W':
+			line(0.0f, 1.0f, 0.2f, 0.0f);
+			line(0.2f, 0.0f, 0.5f, 0.45f);
+			line(0.5f, 0.45f, 0.8f, 0.0f);
+			line(0.8f, 0.0f, 1.0f, 1.0f);
+			break;
+		}
+		};
+
+	for (size_t i = 0; i < text.size(); i++) {
+		drawGlyph(text[i], float(i) * (charWidth + spacing));
+	}
 }
 
 //void SplatEditor::renderTeleportRefinementDisk(RenderTarget& target, CUstream stream) {

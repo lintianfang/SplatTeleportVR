@@ -34,6 +34,7 @@
 #include "loader/PLYHeightmapLoader.h"
 #include "loader/GLBLoader.h"
 #include "loader/LASLoader.h"
+#include "loader/PLYMeshLoader.h"
 #include "writer/GSPlyWriter.h"
 #include "writer/SplatsyWriter.h"
 #include "writer/SplatsyFilesWriter.h"
@@ -128,7 +129,10 @@ struct SplatEditor{
 	shared_ptr<SNSplats> tempSplats = nullptr;
 	shared_ptr<SNTriangles> sn_vr_editing = nullptr;
 	shared_ptr<SNTriangles> sn_dbgsphere = nullptr;
-	shared_ptr<SNTriangles> sn_teleport_avatar = nullptr;
+	vector<shared_ptr<SNTriangles>> sn_teleport_avatar_parts;
+	bool teleport_avatar_enabled = true;
+	float teleport_avatar_scale = 0.8f; // Visual size only; does not change eye offset.
+	vec3 teleport_avatar_forward = vec3(0.0f, 1.0f, 0.0f);
 	shared_ptr<SNSplats> sn_brushsphere = nullptr;
 
 	vector<SceneNode*> scheduledForRemoval;
@@ -589,6 +593,7 @@ struct SplatEditor{
 	void drawTeleportBeam(vec3 start, vec3 end, float startRadius, float endRadius, vec4 color);
 	void renderTeleportBeam(RenderTarget& target, CUstream stream);
 	void drawTeleportRefinementDisk(vec3 center, vec3 axisDepth, vec3 axisHeight, float radius, vec4 color);
+	void drawTeleportRefinementProxyWord(const string& text, vec3 center, vec3 axisX, vec3 axisY);
 	void renderTeleportRefinementDisk(RenderTarget& target, CUstream stream);
 	void drawLine(vec3 start, vec3 end, uint32_t color = 0xffff00ff);
 	void drawBox(Box3 box, uint32_t color = 0xffff00ff);

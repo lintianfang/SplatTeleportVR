@@ -125,6 +125,9 @@ void SplatEditor::inputHandlingVR(){
 	Scene& scene = editor->scene;
 	auto ovr = editor->ovr;
 	auto& state = editor->state;
+	for (auto& part : sn_teleport_avatar_parts) {
+		part->visible = false;
+	}
 
 	#if !defined(NO_OPENVR)
 
@@ -792,17 +795,18 @@ void SplatEditor::inputHandlingVR(){
 
 		drawTeleportRefinementDisk(teleport_content_anchor_position, teleport_refinement_forward, up, scaledRefinementRadius, diskColor);
 
-		// Controller-proximal copy.
-		if (left.valid) {
-			const mat4 leftPose = mat4(ovr->flip * left.transform);
+		// Right-controller-proximal refinement preview.
+		if (right.valid) {
+			const mat4 rightPose = mat4(ovr->flip * right.transform);
 
-			// Local offset from the left controller.
-			const vec3 proxyCenter = vec3(leftPose * vec4(-0.10f, 0.06f, -0.12f, 1.0f));
+			// Mirrored from the previous left-controller placement.
+			const vec3 proxyCenter = vec3(rightPose * vec4(0.10f, 0.09f, -0.12f, 1.0f));
 
 			// Make the proxy disk face the HMD.
 			const vec3 hmdPosition = vec3(ovr->flip * ovr->getHmdPose() * vec4(0.0f, 0.0f, 0.0f, 1.0f));
 
 			vec3 toHmd = hmdPosition - proxyCenter;
+
 			if (glm::length(toHmd) > 0.0001f) {
 				toHmd = glm::normalize(toHmd);
 
@@ -821,16 +825,57 @@ void SplatEditor::inputHandlingVR(){
 				teleport_refinement_proxy_disk.color = diskColor;
 				teleport_refinement_proxy_disk.visible = true;
 
-				// Mirror the current refinement position onto the small disk.
-				const float contentScale = getTeleportContentScale();
-				const float scaledRefinementRadius = teleport_refinement_radius * contentScale;
-
 				const float normalizedDepth = glm::clamp(teleport_refinement_depth / scaledRefinementRadius, -1.0f, 1.0f);
 				const float normalizedHeight = glm::clamp(teleport_refinement_height / scaledRefinementRadius, -1.0f, 1.0f);
 
 				const vec3 proxyTarget = proxyCenter + normalizedDepth * proxyRadius * proxyDepth + normalizedHeight * proxyRadius * proxyHeight;
 
 				drawSphere({ .pos = proxyTarget, .scale = vec3(0.012f), .color = vec4(1.0f, 0.15f, 0.10f, 1.0f) });
+
+				drawTeleportRefinementProxyWord("BACK", proxyCenter - (proxyRadius + 0.045f) * proxyDepth, proxyDepth, proxyHeight);
+				drawTeleportRefinementProxyWord("FRONT", proxyCenter + (proxyRadius + 0.045f) * proxyDepth, proxyDepth, proxyHeight);
+				drawTeleportRefinementProxyWord("DOWN", proxyCenter - (proxyRadius + 0.040f) * proxyHeight, proxyDepth, proxyHeight);
+				drawTeleportRefinementProxyWord("UP", proxyCenter + (proxyRadius + 0.040f) * proxyHeight, proxyDepth, proxyHeight);
+			}
+		}
+	}
+	// Preview the destination eye position after all target/refinement updates.
+	// Keep the existing sphere at the content target; the avatar marks the viewpoint.
+	if (teleport_avatar_enabled && !sn_teleport_avatar_parts.empty() && teleportRayValid && right.isTriggerPressed() && teleport_target_valid && teleport_mode != TeleportMode::PLACE_INDICATOR) {
+		const mat4 hmdPose = mat4(ovr->flip * ovr->getHmdPose());
+		const vec3 hmdPosition = vec3(hmdPose * vec4(0.0f, 0.0f, 0.0f, 1.0f));
+		const vec3 up(0.0f, 0.0f, 1.0f);
+		const float contentScale = getTeleportContentScale();
+		vec3 destinationEye = teleport_target_position;
+
+		if (teleport_mode == TeleportMode::SATOR_RAY_CURSOR) {
+			const mat4 controllerPose = mat4(ovr->flip * right.transform);
+			const vec3 controllerPosition = vec3(controllerPose * vec4(0.0f, 0.0f, 0.0f, 1.0f));
+			destinationEye += hmdPosition - controllerPosition;
+		}
+		else if (!(teleport_mode == TeleportMode::REFINED_SPLAT && teleport_refinement_active)) {
+			destinationEye += up * (teleport_user_eye_height * contentScale);
+		}
+
+		vec3 forward = vec3(hmdPose * vec4(0.0f, 0.0f, -1.0f, 0.0f));
+		forward.z = 0.0f;
+		if (glm::length(forward) > 0.0001f) teleport_avatar_forward = glm::normalize(forward);
+		forward = teleport_avatar_forward;
+		const vec3 avatarRight = glm::normalize(glm::cross(forward, up));
+
+		// Maps model +Y to scene +Z and model -Z to horizontal HMD forward.
+		mat4 orientation(1.0f);
+		orientation[0] = vec4(avatarRight, 0.0f);
+		orientation[1] = vec4(up, 0.0f);
+		orientation[2] = vec4(-forward, 0.0f);
+		const float avatarScale = teleport_avatar_scale * contentScale;
+		if (avatarScale > 0.0f) {
+			const mat4 avatarTransform = glm::translate(destinationEye) * orientation * glm::scale(vec3(avatarScale));
+
+			for (auto& part : sn_teleport_avatar_parts) 
+			{
+				part->transform = avatarTransform;
+				part->visible = true;
 			}
 		}
 	}
