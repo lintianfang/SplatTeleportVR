@@ -827,6 +827,7 @@ void makeBrushesVR(ImguiPage* page){
 			FilterRules rules;
 			rules.selection = FILTER_SELECTION_SELECTED;
 			editor->filterToNewLayer_undoable(rules);
+			
 			editor->setAction(nullptr);
 		}
 	}
@@ -976,7 +977,7 @@ void makeTeleportVR(ImguiPage* page)
 	using SatorDistanceControl = SplatEditor::SatorDistanceControl;
 
 	page->width = 440;
-	page->height = 880;
+	page->height = 1380;
 
 	ImGui::SetCurrentContext(page->context);
 	ImGuiIO& io = page->context->IO;
@@ -1107,6 +1108,17 @@ void makeTeleportVR(ImguiPage* page)
 			if (GUIVR::Button("10 cm", size)) editor->teleport_fixed_radius = 0.10f;
 			ImGui::SameLine();
 			if (GUIVR::Button("20 cm", size)) editor->teleport_fixed_radius = 0.20f;
+			ImGui::Spacing();
+			ImGui::Separator();
+			ImGui::Spacing();
+
+			ImGui::Text("Opacity / Scale Threshold: %.2f", editor->teleport_opacity_to_scale_threshold);
+
+			ImGui::Checkbox("Show Accepted / Rejected", &editor->teleport_show_opacity_scale_threshold);
+
+			ImGui::SliderFloat("Threshold##OpacityScale", &editor->teleport_opacity_to_scale_threshold, 0.0f, 20.0f, "%.2f");
+
+			ImGui::Checkbox("Show Opacity/Scale Map", &editor->teleport_show_opacity_scale_debug);
 		}
 		if (editor->teleport_mode == TeleportMode::SATOR_RAY_CURSOR) {
 			ImGui::Text("Distance Control");

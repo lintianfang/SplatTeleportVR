@@ -68,6 +68,68 @@ constexpr float3 SPECTRAL[11] = {
 	float3{94,79,162},
 };
 
+__device__ inline vec3 sampleSpectral(float t)
+{
+	t = fminf(fmaxf(t, 0.0f), 1.0f);
+
+	float x = t * 10.0f;
+	int i0 = (int)floorf(x);
+	int i1 = min(i0 + 1, 10);
+	float u = x - float(i0);
+
+	float3 c0 = SPECTRAL[i0];
+	float3 c1 = SPECTRAL[i1];
+
+	return vec3(
+		((1.0f - u) * c0.x + u * c1.x) / 255.0f,
+		((1.0f - u) * c0.y + u * c1.y) / 255.0f,
+		((1.0f - u) * c0.z + u * c1.z) / 255.0f
+	);
+}
+
+__device__ inline vec3 opacityScaleDebugColor(
+	float opacity,
+	vec3 scale,
+	float threshold)
+{
+	float maxScale = fmaxf(scale.x, fmaxf(scale.y, scale.z));
+
+	float score =
+		opacity / fmaxf(maxScale, 1e-6f);
+
+	float safeThreshold =
+		fmaxf(threshold, 1e-6f);
+
+	float relativeScore =
+		log2f(fmaxf(score, 1e-12f) / safeThreshold);
+
+	relativeScore =
+		fminf(fmaxf(relativeScore, -2.0f), 2.0f);
+
+	float t =
+		(relativeScore + 2.0f) * 0.25f;
+
+	return sampleSpectral(t);
+}
+
+__device__ inline vec3 opacityScaleThresholdColor(
+	float opacity,
+	vec3 scale,
+	float threshold)
+{
+	const float maxScale = fmaxf(scale.x, fmaxf(scale.y, scale.z));
+	const float score = opacity / fmaxf(maxScale, 1e-6f);
+
+	if (score < threshold) {
+		// rejected
+		return vec3(1.0f, 0.0f, 0.0f);
+	}
+	else {
+		// accepted
+		return vec3(0.0f, 0.0f, 1.0f);
+	}
+}
+
 __device__ uint64_t g_uclosest;
 
 __device__ double g_x;
@@ -732,6 +794,39 @@ void kernel_stageSplats(
 
 	color = applyColorCorrection(color, colorCorrection);
 
+	if ((args.uniforms.showOpacityScaleDebug != 0 ||
+		args.uniforms.showOpacityScaleThreshold != 0) &&
+		args.uniforms.opacityScaleThreshold > 0.0f)
+	{
+		const float opacity =
+			model.color[splatIndex].normalized().a;
+
+		const vec3 gaussianScale =
+			model.scale[splatIndex];
+
+		vec3 debugColor;
+
+		if (args.uniforms.showOpacityScaleThreshold != 0) {
+			debugColor = opacityScaleThresholdColor(
+				opacity,
+				gaussianScale,
+				args.uniforms.opacityScaleThreshold
+			);
+		}
+		else {
+			debugColor = opacityScaleDebugColor(
+				opacity,
+				gaussianScale,
+				args.uniforms.opacityScaleThreshold
+			);
+		}
+
+		color.r = debugColor.r;
+		color.g = debugColor.g;
+		color.b = debugColor.b;
+	}
+
+
 	uint32_t flags = model.flags[splatIndex];
 
 	{ // HANDLE FLAGS
@@ -940,6 +1035,39 @@ void kernel_stageSplats_perspectivecorrect(
 	if (n_touched_tiles == 0) return;
 
 	color = applyColorCorrection(color, colorCorrection);
+
+	if ((args.uniforms.showOpacityScaleDebug != 0 ||
+		args.uniforms.showOpacityScaleThreshold != 0) &&
+		args.uniforms.opacityScaleThreshold > 0.0f)
+	{
+		const float opacity =
+			model.color[splatIndex].normalized().a;
+
+		const vec3 gaussianScale =
+			model.scale[splatIndex];
+
+		vec3 debugColor;
+
+		if (args.uniforms.showOpacityScaleThreshold != 0) {
+			debugColor = opacityScaleThresholdColor(
+				opacity,
+				gaussianScale,
+				args.uniforms.opacityScaleThreshold
+			);
+		}
+		else {
+			debugColor = opacityScaleDebugColor(
+				opacity,
+				gaussianScale,
+				args.uniforms.opacityScaleThreshold
+			);
+		}
+
+		color.r = debugColor.r;
+		color.g = debugColor.g;
+		color.b = debugColor.b;
+	}
+
 
 	uint32_t flags = model.flags[splatIndex];
 

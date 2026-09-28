@@ -2101,6 +2101,9 @@ Uniforms SplatEditor::getUniforms(){
 	uniforms.cullSmallSplats          = settings.cullSmallSplats;
 	uniforms.brushColorMode           = settings.brushColorMode;
 	uniforms.intersectionMode         = settings.intersectionMode;
+	uniforms.showOpacityScaleDebug = teleport_show_opacity_scale_debug ? 1 : 0;
+	uniforms.showOpacityScaleThreshold = teleport_show_opacity_scale_threshold ? 1 : 0;
+	uniforms.opacityScaleThreshold = teleport_opacity_to_scale_threshold;
 
 	uniforms.inset.show               = settings.showInset;
 	uniforms.inset.start              = {16 * 60, 16 * 50};

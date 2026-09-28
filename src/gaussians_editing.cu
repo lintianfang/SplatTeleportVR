@@ -2183,7 +2183,7 @@ __global__ void kernel_findTeleportPoint(
 	float selectionRadius,
 	float minDistance,
 	float maxDistance,
-
+	float opacityToScaleThreshold,
 	unsigned long long* globalBest)
 {
 	auto grid = cg::this_grid();
@@ -2205,6 +2205,13 @@ __global__ void kernel_findTeleportPoint(
 	/*if (opacity < 0.02f) {
 		return;
 	}*/
+	const vec3 scale = model.scale[index];
+	const float maxScale = fmaxf(scale.x, fmaxf(scale.y, scale.z));
+	const float opacityToScale = opacity / fmaxf(maxScale, 1e-6f);
+
+	if (opacityToScale < opacityToScaleThreshold) {
+		return;
+	}
 
 	const vec3 localPosition = model.position[index];
 

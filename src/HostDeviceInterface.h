@@ -504,6 +504,9 @@ struct Uniforms{
 	int rendermode;
 	int brushColorMode;
 	int intersectionMode;
+	int showOpacityScaleDebug;   //for coloring opacity-to-scale debug visualization
+	int showOpacityScaleThreshold;
+	float opacityScaleThreshold;
 	uint32_t fragmentCounter;
 	float splatSize;
 	bool disableFrustumCulling;

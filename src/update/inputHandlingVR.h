@@ -487,7 +487,7 @@ void SplatEditor::inputHandlingVR(){
 		cuMemsetD8Async(cptr_teleport_best, 0xFF, sizeof(unsigned long long), sidestream);
 
 		float minDistance = 0.20f;
-		float maxDistance = 30.0f;
+		float maxDistance = 50.0f;
 
 		bool kernelLaunched = false;
 		SNSplats* node = editor->getTeleportEnvironmentLayer();
@@ -498,16 +498,19 @@ void SplatEditor::inputHandlingVR(){
 
 			if (teleport_mode == TeleportMode::ADAPTIVE_SPLAT) {
 				float selectionRadius = teleport_adaptive_min_radius;
+				float opacityToScaleThreshold = 0.0f;
 
-				void* args[] = { &model, &rayOrigin, &rayDirection, &selectionRadius, &minDistance, &maxDistance, &cptr_teleport_best };
+				void* args[] = { &model, &rayOrigin, &rayDirection, &selectionRadius, &minDistance, &maxDistance, &opacityToScaleThreshold, &cptr_teleport_best };
 				prog_gaussians_editing->launch("kernel_findTeleportPoint", args, model.count, sidestream);
 
 				teleport_query_stage = TeleportQueryStage::ADAPTIVE_NARROW;
 			}
 			else {
 				float selectionRadius = teleport_fixed_radius;
+				float opacityToScaleThreshold = teleport_opacity_to_scale_threshold;
+				//float opacityToScaleThreshold = 0.0f;
 
-				void* args[] = { &model, &rayOrigin, &rayDirection, &selectionRadius, &minDistance, &maxDistance, &cptr_teleport_best };
+				void* args[] = { &model, &rayOrigin, &rayDirection, &selectionRadius, &minDistance, &maxDistance, &opacityToScaleThreshold,&cptr_teleport_best };
 				prog_gaussians_editing->launch("kernel_findTeleportPoint", args, model.count, sidestream);
 
 				teleport_query_stage = TeleportQueryStage::FIXED;
@@ -628,14 +631,6 @@ void SplatEditor::inputHandlingVR(){
 
 				bool fallbackLaunched = false;
 				SNSplats* node = editor->getTeleportEnvironmentLayer();
-				if (node) {
-					println(
-						"[Teleport Query] environment='{}' ID={} cachedID={}",
-						node->name,
-						node->ID,
-						teleport_environment_layer_id
-					);
-				}
 
 				if (node && node->visible && node->dmng.data.count > 0) {
 					GaussianData model = node->dmng.data;

@@ -402,6 +402,10 @@ struct SplatEditor{
 	float teleport_adaptive_min_radius = 0.01f;
 	float teleport_adaptive_expansion_start_distance = 2.0f;
 	float teleport_adaptive_max_radius = 0.15f;
+	// opacity to scale threshold
+	float teleport_opacity_to_scale_threshold = 5.0f;
+	bool teleport_show_opacity_scale_debug = false;
+	bool teleport_show_opacity_scale_threshold = false;
 
 	bool teleport_adaptive_last_used_fallback = false;
 	float teleport_adaptive_selected_radius = 0.01f;
@@ -413,7 +417,7 @@ struct SplatEditor{
 	vec3 teleport_content_anchor_position = vec3(0.0f);
 	vec3 teleport_refinement_forward = vec3(0.0f, 1.0f, 0.0f);
 
-	float teleport_refinement_radius = 1.25f;
+	float teleport_refinement_radius = 1.45f;
 	float teleport_refinement_activation_threshold = 0.12f;
 
 	float teleport_refinement_depth = 0.0f;
