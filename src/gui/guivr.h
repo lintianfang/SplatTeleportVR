@@ -1119,6 +1119,10 @@ void makeTeleportVR(ImguiPage* page)
 			ImGui::SliderFloat("Threshold##OpacityScale", &editor->teleport_opacity_to_scale_threshold, 0.0f, 20.0f, "%.2f");
 
 			ImGui::Checkbox("Show Opacity/Scale Map", &editor->teleport_show_opacity_scale_debug);
+
+			if (ImGui::Button("Count Accepted / Rejected")) {
+				editor->countOpacityScaleCandidates();
+			}
 		}
 		if (editor->teleport_mode == TeleportMode::SATOR_RAY_CURSOR) {
 			ImGui::Text("Distance Control");

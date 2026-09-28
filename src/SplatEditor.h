@@ -737,4 +737,6 @@ struct SplatEditor{
 
 	string sanitizeFilename(const string& input);
 	float getTeleportContentScale();
+
+	void countOpacityScaleCandidates();
 };

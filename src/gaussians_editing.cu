@@ -2172,6 +2172,35 @@ __device__ inline unsigned long long packTeleportCandidate(
 		static_cast<unsigned long long>(pointIndex);
 }
 
+extern "C"
+__global__ void kernel_countOpacityScaleCandidates(
+	GaussianData model,
+	float threshold,
+	unsigned int* accepted,
+	unsigned int* rejected)
+{
+	auto grid = cg::this_grid();
+	const uint32_t index = static_cast<uint32_t>(grid.thread_rank());
+
+	if (index >= model.count) return;
+
+	const uint32_t flags = model.flags[index];
+	if (flags & FLAGS_DELETED) return;
+
+	const float opacity = model.color[index].normalized().a;
+
+	const vec3 scale = model.scale[index];
+	const float maxScale = fmaxf(scale.x, fmaxf(scale.y, scale.z));
+
+	const float score = opacity / fmaxf(maxScale, 1e-6f);
+
+	if (score >= threshold) {
+		atomicAdd(accepted, 1u);
+	}
+	else {
+		atomicAdd(rejected, 1u);
+	}
+}
 
 extern "C"
 __global__ void kernel_findTeleportPoint(

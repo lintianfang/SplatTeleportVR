@@ -4933,6 +4933,102 @@ float SplatEditor::getTeleportContentScale()
 	return glm::length(vec3(contentTransform[0]));
 }
 
+void SplatEditor::countOpacityScaleCandidates()
+{
+	initializeTeleportEnvironmentLayer();
+
+	SNSplats* node = getTeleportEnvironmentLayer();
+
+	if (!node || !node->visible || node->dmng.data.count == 0) {
+		println("[Opacity/Scale] No valid teleport environment.");
+		return;
+	}
+
+	static CUdeviceptr cptr_accepted = 0;
+	static CUdeviceptr cptr_rejected = 0;
+
+	if (cptr_accepted == 0) {
+		cptr_accepted = CURuntime::alloc(
+			"OpacityScale accepted counter",
+			sizeof(uint32_t)
+		);
+	}
+
+	if (cptr_rejected == 0) {
+		cptr_rejected = CURuntime::alloc(
+			"OpacityScale rejected counter",
+			sizeof(uint32_t)
+		);
+	}
+
+	// Reset counters
+	cuMemsetD32(cptr_accepted, 0, 1);
+	cuMemsetD32(cptr_rejected, 0, 1);
+
+	GaussianData model = node->dmng.data;
+
+	float threshold = teleport_opacity_to_scale_threshold;
+
+	void* args[] = {
+		&model,
+		&threshold,
+		&cptr_accepted,
+		&cptr_rejected
+	};
+
+	prog_gaussians_editing->launch(
+		"kernel_countOpacityScaleCandidates",
+		args,
+		model.count
+	);
+
+	uint32_t accepted = 0;
+	uint32_t rejected = 0;
+
+	cuMemcpyDtoH(
+		&accepted,
+		cptr_accepted,
+		sizeof(uint32_t)
+	);
+
+	cuMemcpyDtoH(
+		&rejected,
+		cptr_rejected,
+		sizeof(uint32_t)
+	);
+
+	const uint32_t total = accepted + rejected;
+
+	const float acceptedPercent =
+		total > 0
+		? 100.0f * float(accepted) / float(total)
+		: 0.0f;
+
+	const float rejectedPercent =
+		total > 0
+		? 100.0f * float(rejected) / float(total)
+		: 0.0f;
+
+	println(
+		"[Opacity/Scale] Threshold = {}",
+		threshold
+	);
+
+	println(
+		"[Opacity/Scale] Accepted = {} / {} ({}%)",
+		accepted,
+		total,
+		acceptedPercent
+	);
+
+	println(
+		"[Opacity/Scale] Rejected = {} / {} ({}%)",
+		rejected,
+		total,
+		rejectedPercent
+	);
+}
+
 #include "update/inputHandlingDesktop.h"
 #include "update/inputHandlingVR.h"
 
