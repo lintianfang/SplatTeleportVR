@@ -2103,6 +2103,7 @@ Uniforms SplatEditor::getUniforms(){
 	uniforms.intersectionMode         = settings.intersectionMode;
 	uniforms.showOpacityScaleDebug = teleport_show_opacity_scale_debug ? 1 : 0;
 	uniforms.showOpacityScaleThreshold = teleport_show_opacity_scale_threshold ? 1 : 0;
+	uniforms.showOpacityScaleAcceptedOnly = teleport_show_opacity_scale_accepted_only ? 1 : 0;
 	uniforms.opacityScaleThreshold = teleport_opacity_to_scale_threshold;
 
 	uniforms.inset.show               = settings.showInset;

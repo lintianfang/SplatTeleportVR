@@ -1123,6 +1123,13 @@ void makeTeleportVR(ImguiPage* page)
 			if (ImGui::Button("Count Accepted / Rejected")) {
 				editor->countOpacityScaleCandidates();
 			}
+			if (ImGui::Checkbox("Show Accepted Only", &editor->teleport_show_opacity_scale_accepted_only))
+			{
+				if (editor->teleport_show_opacity_scale_accepted_only) {
+					editor->teleport_show_opacity_scale_debug = false;
+					editor->teleport_show_opacity_scale_threshold = false;
+				}
+			}
 		}
 		if (editor->teleport_mode == TeleportMode::SATOR_RAY_CURSOR) {
 			ImGui::Text("Distance Control");

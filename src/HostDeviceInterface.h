@@ -506,6 +506,7 @@ struct Uniforms{
 	int intersectionMode;
 	int showOpacityScaleDebug;   //for coloring opacity-to-scale debug visualization
 	int showOpacityScaleThreshold;
+	int showOpacityScaleAcceptedOnly;
 	float opacityScaleThreshold;
 	uint32_t fragmentCounter;
 	float splatSize;

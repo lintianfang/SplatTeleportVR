@@ -406,6 +406,7 @@ struct SplatEditor{
 	float teleport_opacity_to_scale_threshold = 5.0f;
 	bool teleport_show_opacity_scale_debug = false;
 	bool teleport_show_opacity_scale_threshold = false;
+	bool teleport_show_opacity_scale_accepted_only = false;
 
 	bool teleport_adaptive_last_used_fallback = false;
 	float teleport_adaptive_selected_radius = 0.01f;

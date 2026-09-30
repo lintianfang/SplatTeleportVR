@@ -531,6 +531,18 @@ void kernel_stageSplats(
 
 	if(splatIndex >= model.count) return;
 
+	if (args.uniforms.showOpacityScaleAcceptedOnly != 0) {
+
+		const float opacity = model.color[splatIndex].normalized().a;
+		const vec3 gaussianScale = model.scale[splatIndex];
+		const float maxScale = fmaxf(gaussianScale.x, fmaxf(gaussianScale.y, gaussianScale.z));
+		const float score = opacity / fmaxf(maxScale, 1e-6f);
+
+		if (score < args.uniforms.opacityScaleThreshold) {
+			return;
+		}
+	}
+
 	mat4 world = model.transform;
 	mat4 view = target.view;
 	mat4 proj = target.proj;
@@ -933,6 +945,18 @@ void kernel_stageSplats_perspectivecorrect(
 	constexpr int BLOCK_SIZE = TILE_SIZE_PERSPCORRECT * TILE_SIZE_PERSPCORRECT;
 
 	if(splatIndex >= model.count) return;
+
+	if (args.uniforms.showOpacityScaleAcceptedOnly != 0) {
+
+		const float opacity = model.color[splatIndex].normalized().a;
+		const vec3 gaussianScale = model.scale[splatIndex];
+		const float maxScale = fmaxf(gaussianScale.x, fmaxf(gaussianScale.y, gaussianScale.z));
+		const float score = opacity / fmaxf(maxScale, 1e-6f);
+
+		if (score < args.uniforms.opacityScaleThreshold) {
+			return;
+		}
+	}
 
 	mat4 world = model.transform;
 	mat4 view = target.view;
