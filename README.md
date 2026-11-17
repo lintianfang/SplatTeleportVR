@@ -1,5 +1,7 @@
 # SplatTeleportVR
 
+Our paper was aceepted in STAG 2026, more details will be released in 2-3 weeks.
+
 ### Features
 
 <ul>
@@ -91,8 +93,4 @@ export LD_LIBRARY_PATH=~/gcc-14.1.0/x86_64-linux-gnu/libstdc++-v3/src/.libs:$LD_
 
 ## Getting Started
 
-
-	ISSN = {1467-8659},
-	DOI = {10.1111/cgf.70214}
-}
 </pre>
